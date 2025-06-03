@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/github/github-mcp-server/pkg/translations"
 	"github.com/google/go-github/v72/github"
@@ -67,9 +68,51 @@ func GetSecretScanningAlert(getClient GetClientFn, t translations.TranslationHel
 				return mcp.NewToolResultError(fmt.Sprintf("failed to get alert: %s", string(body))), nil
 			}
 
-			r, err := json.Marshal(alert)
+			// Create simplified alert structure
+			type SimplifiedSecretScanningAlert struct {
+				Number                int64  `json:"number"`
+				CreatedAt             string `json:"created_at,omitempty"`
+				UpdatedAt             string `json:"updated_at,omitempty"`
+				HTMLURL               string `json:"html_url,omitempty"`
+				State                 string `json:"state,omitempty"`
+				Resolution            string `json:"resolution,omitempty"`
+				ResolvedAt            string `json:"resolved_at,omitempty"`
+				ResolvedBy            string `json:"resolved_by,omitempty"`
+				SecretType            string `json:"secret_type,omitempty"`
+				SecretTypeDisplayName string `json:"secret_type_display_name,omitempty"`
+				Secret                string `json:"secret,omitempty"`
+			}
+
+			// Create simplified alert instance
+			simplifiedAlert := SimplifiedSecretScanningAlert{
+				Number:                int64(alert.GetNumber()),
+				HTMLURL:               alert.GetHTMLURL(),
+				State:                 alert.GetState(),
+				Resolution:            alert.GetResolution(),
+				SecretType:            alert.GetSecretType(),
+				SecretTypeDisplayName: alert.GetSecretTypeDisplayName(),
+				Secret:                alert.GetSecret(),
+			}
+
+			// Format dates
+			if alert.CreatedAt != nil {
+				simplifiedAlert.CreatedAt = alert.CreatedAt.Format(time.RFC3339)
+			}
+			if alert.UpdatedAt != nil {
+				simplifiedAlert.UpdatedAt = alert.UpdatedAt.Format(time.RFC3339)
+			}
+			if alert.ResolvedAt != nil {
+				simplifiedAlert.ResolvedAt = alert.ResolvedAt.Format(time.RFC3339)
+			}
+
+			// Add user information
+			if alert.ResolvedBy != nil {
+				simplifiedAlert.ResolvedBy = alert.ResolvedBy.GetLogin()
+			}
+
+			r, err := json.Marshal(simplifiedAlert)
 			if err != nil {
-				return nil, fmt.Errorf("failed to marshal alert: %w", err)
+				return nil, fmt.Errorf("failed to marshal simplified alert: %w", err)
 			}
 
 			return mcp.NewToolResultText(string(r)), nil
@@ -144,9 +187,57 @@ func ListSecretScanningAlerts(getClient GetClientFn, t translations.TranslationH
 				return mcp.NewToolResultError(fmt.Sprintf("failed to list alerts: %s", string(body))), nil
 			}
 
-			r, err := json.Marshal(alerts)
+			// Create simplified alert structure
+			type SimplifiedSecretScanningAlert struct {
+				Number                int64  `json:"number"`
+				CreatedAt             string `json:"created_at,omitempty"`
+				UpdatedAt             string `json:"updated_at,omitempty"`
+				HTMLURL               string `json:"html_url,omitempty"`
+				State                 string `json:"state,omitempty"`
+				Resolution            string `json:"resolution,omitempty"`
+				ResolvedAt            string `json:"resolved_at,omitempty"`
+				ResolvedBy            string `json:"resolved_by,omitempty"`
+				SecretType            string `json:"secret_type,omitempty"`
+				SecretTypeDisplayName string `json:"secret_type_display_name,omitempty"`
+				Secret                string `json:"secret,omitempty"`
+			}
+
+			// Create list of simplified alerts
+			simplifiedAlerts := []SimplifiedSecretScanningAlert{}
+			for _, alert := range alerts {
+				// Create simplified alert instance
+				simplifiedAlert := SimplifiedSecretScanningAlert{
+					Number:                int64(alert.GetNumber()),
+					HTMLURL:               alert.GetHTMLURL(),
+					State:                 alert.GetState(),
+					Resolution:            alert.GetResolution(),
+					SecretType:            alert.GetSecretType(),
+					SecretTypeDisplayName: alert.GetSecretTypeDisplayName(),
+					Secret:                alert.GetSecret(),
+				}
+
+				// Format dates
+				if alert.CreatedAt != nil {
+					simplifiedAlert.CreatedAt = alert.CreatedAt.Format(time.RFC3339)
+				}
+				if alert.UpdatedAt != nil {
+					simplifiedAlert.UpdatedAt = alert.UpdatedAt.Format(time.RFC3339)
+				}
+				if alert.ResolvedAt != nil {
+					simplifiedAlert.ResolvedAt = alert.ResolvedAt.Format(time.RFC3339)
+				}
+
+				// Add user information
+				if alert.ResolvedBy != nil {
+					simplifiedAlert.ResolvedBy = alert.ResolvedBy.GetLogin()
+				}
+
+				simplifiedAlerts = append(simplifiedAlerts, simplifiedAlert)
+			}
+
+			r, err := json.Marshal(simplifiedAlerts)
 			if err != nil {
-				return nil, fmt.Errorf("failed to marshal alerts: %w", err)
+				return nil, fmt.Errorf("failed to marshal simplified alerts: %w", err)
 			}
 
 			return mcp.NewToolResultText(string(r)), nil

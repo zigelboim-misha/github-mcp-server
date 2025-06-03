@@ -2,6 +2,9 @@ package github
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"time"
 
 	"github.com/github/github-mcp-server/pkg/translations"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -33,7 +36,48 @@ func GetMe(getClient GetClientFn, t translations.TranslationHelperFunc) (mcp.Too
 			return mcp.NewToolResultErrorFromErr("failed to get user", err), nil
 		}
 
-		return MarshalledTextResult(user), nil
+		// Create simplified user structure
+		type SimplifiedUser struct {
+			Login     string `json:"login,omitempty"`
+			HTMLURL   string `json:"html_url,omitempty"`
+			Name      string `json:"name,omitempty"`
+			Email     string `json:"email,omitempty"`
+			Bio       string `json:"bio,omitempty"`
+			Company   string `json:"company,omitempty"`
+			Location  string `json:"location,omitempty"`
+			Blog      string `json:"blog,omitempty"`
+			AvatarURL string `json:"avatar_url,omitempty"`
+			CreatedAt string `json:"created_at,omitempty"`
+			UpdatedAt string `json:"updated_at,omitempty"`
+		}
+
+		// Create simplified user instance
+		simplifiedUser := SimplifiedUser{
+			Login:     user.GetLogin(),
+			HTMLURL:   user.GetHTMLURL(),
+			Name:      user.GetName(),
+			Email:     user.GetEmail(),
+			Bio:       user.GetBio(),
+			Company:   user.GetCompany(),
+			Location:  user.GetLocation(),
+			Blog:      user.GetBlog(),
+			AvatarURL: user.GetAvatarURL(),
+		}
+
+		// Format dates
+		if user.CreatedAt != nil {
+			simplifiedUser.CreatedAt = user.CreatedAt.Format(time.RFC3339)
+		}
+		if user.UpdatedAt != nil {
+			simplifiedUser.UpdatedAt = user.UpdatedAt.Format(time.RFC3339)
+		}
+
+		r, err := json.Marshal(simplifiedUser)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal simplified user: %w", err)
+		}
+
+		return mcp.NewToolResultText(string(r)), nil
 	})
 
 	return tool, handler

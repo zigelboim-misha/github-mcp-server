@@ -130,10 +130,83 @@ func ListNotifications(getClient GetClientFn, t translations.TranslationHelperFu
 				return mcp.NewToolResultError(fmt.Sprintf("failed to get notifications: %s", string(body))), nil
 			}
 
-			// Marshal response to JSON
-			r, err := json.Marshal(notifications)
+			// Create simplified repository structure
+			type SimplifiedRepository struct {
+				ID       int64  `json:"id"`
+				Name     string `json:"name,omitempty"`
+				FullName string `json:"full_name,omitempty"`
+				HTMLURL  string `json:"html_url,omitempty"`
+				Owner    struct {
+					Login string `json:"login,omitempty"`
+				} `json:"owner,omitempty"`
+			}
+
+			// Create simplified subject structure
+			type SimplifiedSubject struct {
+				Title            string `json:"title,omitempty"`
+				URL              string `json:"url,omitempty"`
+				LatestCommentURL string `json:"latest_comment_url,omitempty"`
+				Type             string `json:"type,omitempty"`
+			}
+
+			// Create simplified notification structure
+			type SimplifiedNotification struct {
+				ID         string               `json:"id,omitempty"`
+				Unread     bool                 `json:"unread"`
+				Reason     string               `json:"reason,omitempty"`
+				UpdatedAt  string               `json:"updated_at,omitempty"`
+				LastReadAt string               `json:"last_read_at,omitempty"`
+				Subject    SimplifiedSubject    `json:"subject,omitempty"`
+				Repository SimplifiedRepository `json:"repository,omitempty"`
+				URL        string               `json:"url,omitempty"`
+			}
+
+			// Create simplified notifications list
+			simplifiedNotifications := make([]SimplifiedNotification, 0, len(notifications))
+
+			for _, notification := range notifications {
+				simplifiedNotification := SimplifiedNotification{
+					ID:     notification.GetID(),
+					Unread: notification.GetUnread(),
+					Reason: notification.GetReason(),
+					URL:    notification.GetURL(),
+				}
+
+				// Format dates
+				if notification.UpdatedAt != nil {
+					simplifiedNotification.UpdatedAt = notification.UpdatedAt.Format(time.RFC3339)
+				}
+				if notification.LastReadAt != nil {
+					simplifiedNotification.LastReadAt = notification.LastReadAt.Format(time.RFC3339)
+				}
+
+				// Add subject information
+				if notification.Subject != nil {
+					simplifiedNotification.Subject.Title = notification.Subject.GetTitle()
+					simplifiedNotification.Subject.URL = notification.Subject.GetURL()
+					simplifiedNotification.Subject.LatestCommentURL = notification.Subject.GetLatestCommentURL()
+					simplifiedNotification.Subject.Type = notification.Subject.GetType()
+				}
+
+				// Add repository information
+				if notification.Repository != nil {
+					simplifiedNotification.Repository.ID = notification.Repository.GetID()
+					simplifiedNotification.Repository.Name = notification.Repository.GetName()
+					simplifiedNotification.Repository.FullName = notification.Repository.GetFullName()
+					simplifiedNotification.Repository.HTMLURL = notification.Repository.GetHTMLURL()
+
+					if notification.Repository.Owner != nil {
+						simplifiedNotification.Repository.Owner.Login = notification.Repository.Owner.GetLogin()
+					}
+				}
+
+				simplifiedNotifications = append(simplifiedNotifications, simplifiedNotification)
+			}
+
+			// Marshal simplified response
+			r, err := json.Marshal(simplifiedNotifications)
 			if err != nil {
-				return nil, fmt.Errorf("failed to marshal response: %w", err)
+				return nil, fmt.Errorf("failed to marshal simplified notifications: %w", err)
 			}
 
 			return mcp.NewToolResultText(string(r)), nil
@@ -316,9 +389,75 @@ func GetNotificationDetails(getClient GetClientFn, t translations.TranslationHel
 				return mcp.NewToolResultError(fmt.Sprintf("failed to get notification details: %s", string(body))), nil
 			}
 
-			r, err := json.Marshal(thread)
+			// Create a simplified notification thread structure
+			type SimplifiedSubject struct {
+				Title string `json:"title,omitempty"`
+				URL   string `json:"url,omitempty"`
+				Type  string `json:"type,omitempty"`
+			}
+
+			type SimplifiedRepository struct {
+				Name     string `json:"name,omitempty"`
+				FullName string `json:"full_name,omitempty"`
+				HTMLURL  string `json:"html_url,omitempty"`
+				Owner    struct {
+					Login string `json:"login,omitempty"`
+				} `json:"owner,omitempty"`
+			}
+
+			type SimplifiedNotificationThread struct {
+				ID         string                `json:"id,omitempty"`
+				Unread     bool                  `json:"unread"`
+				Reason     string                `json:"reason,omitempty"`
+				UpdatedAt  string                `json:"updated_at,omitempty"`
+				LastReadAt string                `json:"last_read_at,omitempty"`
+				URL        string                `json:"url,omitempty"`
+				Subject    *SimplifiedSubject    `json:"subject,omitempty"`
+				Repository *SimplifiedRepository `json:"repository,omitempty"`
+			}
+
+			// Create a simplified notification thread instance
+			simplifiedThread := SimplifiedNotificationThread{
+				ID:     thread.GetID(),
+				Unread: thread.GetUnread(),
+				Reason: thread.GetReason(),
+				URL:    thread.GetURL(),
+			}
+
+			// Format dates
+			if thread.UpdatedAt != nil {
+				simplifiedThread.UpdatedAt = thread.UpdatedAt.Format(time.RFC3339)
+			}
+			if thread.LastReadAt != nil {
+				simplifiedThread.LastReadAt = thread.LastReadAt.Format(time.RFC3339)
+			}
+
+			// Add subject information
+			if thread.Subject != nil {
+				simplifiedThread.Subject = &SimplifiedSubject{
+					Title: thread.Subject.GetTitle(),
+					URL:   thread.Subject.GetURL(),
+					Type:  thread.Subject.GetType(),
+				}
+			}
+
+			// Add repository information
+			if thread.Repository != nil {
+				simplifiedThread.Repository = &SimplifiedRepository{
+					Name:     thread.Repository.GetName(),
+					FullName: thread.Repository.GetFullName(),
+					HTMLURL:  thread.Repository.GetHTMLURL(),
+				}
+
+				// Add owner information
+				if thread.Repository.Owner != nil {
+					simplifiedThread.Repository.Owner.Login = thread.Repository.Owner.GetLogin()
+				}
+			}
+
+			r, err := json.Marshal(simplifiedThread)
 			if err != nil {
-				return nil, fmt.Errorf("failed to marshal response: %w", err)
+				return nil, fmt.Errorf("failed to marshal simplified thread: %w", err)
 			}
 
 			return mcp.NewToolResultText(string(r)), nil
@@ -397,6 +536,25 @@ func ManageNotificationSubscription(getClient GetClientFn, t translations.Transl
 			if action == NotificationActionDelete {
 				// Special case for delete as there is no response body
 				return mcp.NewToolResultText("Notification subscription deleted"), nil
+			}
+
+			// Simplified subscription response
+			if sub, ok := result.(*github.Subscription); ok {
+				type SimplifiedSubscription struct {
+					Subscribed *bool  `json:"subscribed,omitempty"`
+					Ignored    *bool  `json:"ignored,omitempty"`
+					Reason     string `json:"reason,omitempty"`
+				}
+				simplified := SimplifiedSubscription{
+					Subscribed: sub.Subscribed,
+					Ignored:    sub.Ignored,
+					Reason:     sub.GetReason(),
+				}
+				r, err := json.Marshal(simplified)
+				if err != nil {
+					return nil, fmt.Errorf("failed to marshal simplified subscription: %w", err)
+				}
+				return mcp.NewToolResultText(string(r)), nil
 			}
 
 			r, err := json.Marshal(result)
@@ -489,6 +647,25 @@ func ManageRepositoryNotificationSubscription(getClient GetClientFn, t translati
 			if action == RepositorySubscriptionActionDelete {
 				// Special case for delete as there is no response body
 				return mcp.NewToolResultText("Repository subscription deleted"), nil
+			}
+
+			// Simplified subscription response
+			if sub, ok := result.(*github.Subscription); ok {
+				type SimplifiedSubscription struct {
+					Subscribed *bool  `json:"subscribed,omitempty"`
+					Ignored    *bool  `json:"ignored,omitempty"`
+					Reason     string `json:"reason,omitempty"`
+				}
+				simplified := SimplifiedSubscription{
+					Subscribed: sub.Subscribed,
+					Ignored:    sub.Ignored,
+					Reason:     sub.GetReason(),
+				}
+				r, err := json.Marshal(simplified)
+				if err != nil {
+					return nil, fmt.Errorf("failed to marshal simplified subscription: %w", err)
+				}
+				return mcp.NewToolResultText(string(r)), nil
 			}
 
 			r, err := json.Marshal(result)

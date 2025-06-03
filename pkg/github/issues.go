@@ -70,9 +70,114 @@ func GetIssue(getClient GetClientFn, t translations.TranslationHelperFunc) (tool
 				return mcp.NewToolResultError(fmt.Sprintf("failed to get issue: %s", string(body))), nil
 			}
 
-			r, err := json.Marshal(issue)
+			// Create simplified user
+			type SimplifiedUser struct {
+				Login     string `json:"login,omitempty"`
+				AvatarURL string `json:"avatar_url,omitempty"`
+				HTMLURL   string `json:"html_url,omitempty"`
+			}
+
+			// Create simplified label
+			type SimplifiedLabel struct {
+				Name        string `json:"name,omitempty"`
+				Color       string `json:"color,omitempty"`
+				Description string `json:"description,omitempty"`
+			}
+
+			// Create simplified issue representation
+			type SimplifiedIssue struct {
+				ID               int64             `json:"id,omitempty"`
+				NodeID           string            `json:"node_id,omitempty"`
+				Number           int               `json:"number"`
+				Title            string            `json:"title,omitempty"`
+				State            string            `json:"state,omitempty"`
+				HTMLURL          string            `json:"html_url,omitempty"`
+				Body             string            `json:"body,omitempty"`
+				User             *SimplifiedUser   `json:"user,omitempty"`
+				Labels           []SimplifiedLabel `json:"labels,omitempty"`
+				Assignees        []*SimplifiedUser `json:"assignees,omitempty"`
+				Comments         int               `json:"comments"`
+				CreatedAt        string            `json:"created_at,omitempty"`
+				UpdatedAt        string            `json:"updated_at,omitempty"`
+				ClosedAt         string            `json:"closed_at,omitempty"`
+				PullRequestLinks *struct {
+					URL string `json:"url,omitempty"`
+				} `json:"pull_request,omitempty"`
+			}
+
+			// Process users
+			var user *SimplifiedUser
+			if issue.User != nil {
+				user = &SimplifiedUser{
+					Login:     issue.User.GetLogin(),
+					AvatarURL: issue.User.GetAvatarURL(),
+					HTMLURL:   issue.User.GetHTMLURL(),
+				}
+			}
+
+			// Process assignees
+			assignees := make([]*SimplifiedUser, 0, len(issue.Assignees))
+			for _, assignee := range issue.Assignees {
+				if assignee != nil {
+					assignees = append(assignees, &SimplifiedUser{
+						Login:     assignee.GetLogin(),
+						AvatarURL: assignee.GetAvatarURL(),
+						HTMLURL:   assignee.GetHTMLURL(),
+					})
+				}
+			}
+
+			// Process labels
+			labels := make([]SimplifiedLabel, 0, len(issue.Labels))
+			for _, label := range issue.Labels {
+				labels = append(labels, SimplifiedLabel{
+					Name:        label.GetName(),
+					Color:       label.GetColor(),
+					Description: label.GetDescription(),
+				})
+			}
+
+			// Format dates as strings
+			var closedAtStr string
+			if issue.ClosedAt != nil && !issue.ClosedAt.IsZero() {
+				closedAtStr = issue.ClosedAt.Format(time.RFC3339)
+			}
+
+			// Create pull request link info if available
+			var prLinks *struct {
+				URL string `json:"url,omitempty"`
+			}
+
+			if issue.PullRequestLinks != nil {
+				prLinks = &struct {
+					URL string `json:"url,omitempty"`
+				}{
+					URL: issue.PullRequestLinks.GetURL(),
+				}
+			}
+
+			// Create simplified issue
+			simplifiedIssue := SimplifiedIssue{
+				ID:               issue.GetID(),
+				NodeID:           issue.GetNodeID(),
+				Number:           issue.GetNumber(),
+				Title:            issue.GetTitle(),
+				State:            issue.GetState(),
+				HTMLURL:          issue.GetHTMLURL(),
+				Body:             issue.GetBody(),
+				User:             user,
+				Labels:           labels,
+				Assignees:        assignees,
+				Comments:         issue.GetComments(),
+				CreatedAt:        issue.GetCreatedAt().Format(time.RFC3339),
+				UpdatedAt:        issue.GetUpdatedAt().Format(time.RFC3339),
+				ClosedAt:         closedAtStr,
+				PullRequestLinks: prLinks,
+			}
+
+			r, err := json.Marshal(simplifiedIssue)
 			if err != nil {
-				return nil, fmt.Errorf("failed to marshal issue: %w", err)
+				return nil, fmt.Errorf("failed to marshal simplified issue: %w", err)
 			}
 
 			return mcp.NewToolResultText(string(r)), nil
@@ -144,9 +249,47 @@ func AddIssueComment(getClient GetClientFn, t translations.TranslationHelperFunc
 				return mcp.NewToolResultError(fmt.Sprintf("failed to create comment: %s", string(body))), nil
 			}
 
-			r, err := json.Marshal(createdComment)
+			// Create a simplified version of the comment
+			type SimplifiedUser struct {
+				Login     string `json:"login,omitempty"`
+				AvatarURL string `json:"avatar_url,omitempty"`
+				HTMLURL   string `json:"html_url,omitempty"`
+			}
+
+			type SimplifiedComment struct {
+				ID        int64           `json:"id,omitempty"`
+				NodeID    string          `json:"node_id,omitempty"`
+				HTMLURL   string          `json:"html_url,omitempty"`
+				Body      string          `json:"body,omitempty"`
+				User      *SimplifiedUser `json:"user,omitempty"`
+				CreatedAt string          `json:"created_at,omitempty"`
+				UpdatedAt string          `json:"updated_at,omitempty"`
+			}
+
+			// Create simplified user
+			var user *SimplifiedUser
+			if createdComment.User != nil {
+				user = &SimplifiedUser{
+					Login:     createdComment.User.GetLogin(),
+					AvatarURL: createdComment.User.GetAvatarURL(),
+					HTMLURL:   createdComment.User.GetHTMLURL(),
+				}
+			}
+
+			// Create simplified comment
+			simplifiedComment := SimplifiedComment{
+				ID:        createdComment.GetID(),
+				NodeID:    createdComment.GetNodeID(),
+				HTMLURL:   createdComment.GetHTMLURL(),
+				Body:      createdComment.GetBody(),
+				User:      user,
+				CreatedAt: createdComment.GetCreatedAt().Format(time.RFC3339),
+				UpdatedAt: createdComment.GetUpdatedAt().Format(time.RFC3339),
+			}
+
+			r, err := json.Marshal(simplifiedComment)
 			if err != nil {
-				return nil, fmt.Errorf("failed to marshal response: %w", err)
+				return nil, fmt.Errorf("failed to marshal simplified response: %w", err)
 			}
 
 			return mcp.NewToolResultText(string(r)), nil
@@ -232,9 +375,146 @@ func SearchIssues(getClient GetClientFn, t translations.TranslationHelperFunc) (
 				return mcp.NewToolResultError(fmt.Sprintf("failed to search issues: %s", string(body))), nil
 			}
 
-			r, err := json.Marshal(result)
+			// Create a simplified version of the response with essential fields only
+			type SimplifiedUser struct {
+				Login     string `json:"login,omitempty"`
+				AvatarURL string `json:"avatar_url,omitempty"`
+				HTMLURL   string `json:"html_url,omitempty"`
+			}
+
+			type SimplifiedLabel struct {
+				Name        string `json:"name,omitempty"`
+				Description string `json:"description,omitempty"`
+			}
+
+			type SimplifiedIssue struct {
+				ID         int64             `json:"id,omitempty"`
+				NodeID     string            `json:"node_id,omitempty"`
+				Number     int               `json:"number"`
+				Title      string            `json:"title,omitempty"`
+				State      string            `json:"state,omitempty"`
+				HTMLURL    string            `json:"html_url,omitempty"`
+				Body       string            `json:"body,omitempty"`
+				User       *SimplifiedUser   `json:"user,omitempty"`
+				Labels     []SimplifiedLabel `json:"labels,omitempty"`
+				Assignee   *SimplifiedUser   `json:"assignee,omitempty"`
+				Comments   int               `json:"comments"`
+				CreatedAt  string            `json:"created_at,omitempty"`
+				UpdatedAt  string            `json:"updated_at,omitempty"`
+				ClosedAt   string            `json:"closed_at,omitempty"`
+				Repository *struct {
+					FullName string `json:"full_name,omitempty"`
+					HTMLURL  string `json:"html_url,omitempty"`
+				} `json:"repository,omitempty"`
+				PullRequestLinks *struct {
+					URL string `json:"url,omitempty"`
+				} `json:"pull_request,omitempty"`
+			}
+
+			type SimplifiedIssuesResponse struct {
+				TotalCount        int               `json:"total_count"`
+				IncompleteResults bool              `json:"incomplete_results"`
+				Items             []SimplifiedIssue `json:"items"`
+			}
+
+			simplifiedResult := SimplifiedIssuesResponse{
+				TotalCount:        result.GetTotal(),
+				IncompleteResults: result.GetIncompleteResults(),
+				Items:             make([]SimplifiedIssue, 0, len(result.Issues)),
+			}
+
+			for _, issue := range result.Issues {
+				// Process user
+				var user *SimplifiedUser
+				if issue.User != nil {
+					user = &SimplifiedUser{
+						Login:     issue.User.GetLogin(),
+						AvatarURL: issue.User.GetAvatarURL(),
+						HTMLURL:   issue.User.GetHTMLURL(),
+					}
+				}
+
+				// Process assignee
+				var assignee *SimplifiedUser
+				if issue.Assignee != nil {
+					assignee = &SimplifiedUser{
+						Login:     issue.Assignee.GetLogin(),
+						AvatarURL: issue.Assignee.GetAvatarURL(),
+						HTMLURL:   issue.Assignee.GetHTMLURL(),
+					}
+				}
+
+				// Process labels
+				labels := make([]SimplifiedLabel, 0)
+				if issue.Labels != nil {
+					for _, label := range issue.Labels {
+						labels = append(labels, SimplifiedLabel{
+							Name:        label.GetName(),
+							Description: label.GetDescription(),
+						})
+					}
+				}
+
+				// Format dates as strings
+				var closedAtStr string
+				if issue.ClosedAt != nil && !issue.ClosedAt.IsZero() {
+					closedAtStr = issue.ClosedAt.Format(time.RFC3339)
+				}
+
+				// Create repository info if available
+				var repo *struct {
+					FullName string `json:"full_name,omitempty"`
+					HTMLURL  string `json:"html_url,omitempty"`
+				}
+
+				if issue.Repository != nil {
+					repo = &struct {
+						FullName string `json:"full_name,omitempty"`
+						HTMLURL  string `json:"html_url,omitempty"`
+					}{
+						FullName: issue.Repository.GetFullName(),
+						HTMLURL:  issue.Repository.GetHTMLURL(),
+					}
+				}
+
+				// Create pull request link info if available
+				var prLinks *struct {
+					URL string `json:"url,omitempty"`
+				}
+
+				if issue.PullRequestLinks != nil {
+					prLinks = &struct {
+						URL string `json:"url,omitempty"`
+					}{
+						URL: issue.PullRequestLinks.GetURL(),
+					}
+				}
+
+				simplifiedIssue := SimplifiedIssue{
+					ID:               issue.GetID(),
+					NodeID:           issue.GetNodeID(),
+					Number:           issue.GetNumber(),
+					Title:            issue.GetTitle(),
+					State:            issue.GetState(),
+					HTMLURL:          issue.GetHTMLURL(),
+					Body:             issue.GetBody(),
+					User:             user,
+					Labels:           labels,
+					Assignee:         assignee,
+					Comments:         issue.GetComments(),
+					CreatedAt:        issue.GetCreatedAt().Format(time.RFC3339),
+					UpdatedAt:        issue.GetUpdatedAt().Format(time.RFC3339),
+					ClosedAt:         closedAtStr,
+					Repository:       repo,
+					PullRequestLinks: prLinks,
+				}
+
+				simplifiedResult.Items = append(simplifiedResult.Items, simplifiedIssue)
+			}
+
+			r, err := json.Marshal(simplifiedResult)
 			if err != nil {
-				return nil, fmt.Errorf("failed to marshal response: %w", err)
+				return nil, fmt.Errorf("failed to marshal simplified response: %w", err)
 			}
 
 			return mcp.NewToolResultText(string(r)), nil
@@ -354,9 +634,112 @@ func CreateIssue(getClient GetClientFn, t translations.TranslationHelperFunc) (t
 				return mcp.NewToolResultError(fmt.Sprintf("failed to create issue: %s", string(body))), nil
 			}
 
-			r, err := json.Marshal(issue)
+			// Create simplified types
+			type SimplifiedUser struct {
+				Login     string `json:"login,omitempty"`
+				AvatarURL string `json:"avatar_url,omitempty"`
+				HTMLURL   string `json:"html_url,omitempty"`
+			}
+
+			type SimplifiedLabel struct {
+				Name        string `json:"name,omitempty"`
+				Color       string `json:"color,omitempty"`
+				Description string `json:"description,omitempty"`
+			}
+
+			type SimplifiedIssue struct {
+				ID               int64             `json:"id,omitempty"`
+				NodeID           string            `json:"node_id,omitempty"`
+				Number           int               `json:"number"`
+				Title            string            `json:"title,omitempty"`
+				State            string            `json:"state,omitempty"`
+				HTMLURL          string            `json:"html_url,omitempty"`
+				Body             string            `json:"body,omitempty"`
+				User             *SimplifiedUser   `json:"user,omitempty"`
+				Labels           []SimplifiedLabel `json:"labels,omitempty"`
+				Assignees        []*SimplifiedUser `json:"assignees,omitempty"`
+				Comments         int               `json:"comments"`
+				CreatedAt        string            `json:"created_at,omitempty"`
+				UpdatedAt        string            `json:"updated_at,omitempty"`
+				ClosedAt         string            `json:"closed_at,omitempty"`
+				PullRequestLinks *struct {
+					URL string `json:"url,omitempty"`
+				} `json:"pull_request,omitempty"`
+			}
+
+			// Process user
+			var user *SimplifiedUser
+			if issue.User != nil {
+				user = &SimplifiedUser{
+					Login:     issue.User.GetLogin(),
+					AvatarURL: issue.User.GetAvatarURL(),
+					HTMLURL:   issue.User.GetHTMLURL(),
+				}
+			}
+
+			// Process assignees (output)
+			assigneesOut := make([]*SimplifiedUser, 0, len(issue.Assignees))
+			for _, assignee := range issue.Assignees {
+				if assignee != nil {
+					assigneesOut = append(assigneesOut, &SimplifiedUser{
+						Login:     assignee.GetLogin(),
+						AvatarURL: assignee.GetAvatarURL(),
+						HTMLURL:   assignee.GetHTMLURL(),
+					})
+				}
+			}
+
+			// Process labels (output)
+			labelsOut := make([]SimplifiedLabel, 0, len(issue.Labels))
+			for _, label := range issue.Labels {
+				labelsOut = append(labelsOut, SimplifiedLabel{
+					Name:        label.GetName(),
+					Color:       label.GetColor(),
+					Description: label.GetDescription(),
+				})
+			}
+
+			// Format dates as strings
+			var closedAtStr string
+			if issue.ClosedAt != nil && !issue.ClosedAt.IsZero() {
+				closedAtStr = issue.ClosedAt.Format(time.RFC3339)
+			}
+
+			// Create pull request link info if available
+			var prLinks *struct {
+				URL string `json:"url,omitempty"`
+			}
+
+			if issue.PullRequestLinks != nil {
+				prLinks = &struct {
+					URL string `json:"url,omitempty"`
+				}{
+					URL: issue.PullRequestLinks.GetURL(),
+				}
+			}
+
+			// Create simplified issue
+			simplifiedIssue := SimplifiedIssue{
+				ID:               issue.GetID(),
+				NodeID:           issue.GetNodeID(),
+				Number:           issue.GetNumber(),
+				Title:            issue.GetTitle(),
+				State:            issue.GetState(),
+				HTMLURL:          issue.GetHTMLURL(),
+				Body:             issue.GetBody(),
+				User:             user,
+				Labels:           labelsOut,
+				Assignees:        assigneesOut,
+				Comments:         issue.GetComments(),
+				CreatedAt:        issue.GetCreatedAt().Format(time.RFC3339),
+				UpdatedAt:        issue.GetUpdatedAt().Format(time.RFC3339),
+				ClosedAt:         closedAtStr,
+				PullRequestLinks: prLinks,
+			}
+
+			r, err := json.Marshal(simplifiedIssue)
 			if err != nil {
-				return nil, fmt.Errorf("failed to marshal response: %w", err)
+				return nil, fmt.Errorf("failed to marshal simplified response: %w", err)
 			}
 
 			return mcp.NewToolResultText(string(r)), nil
@@ -476,9 +859,117 @@ func ListIssues(getClient GetClientFn, t translations.TranslationHelperFunc) (to
 				return mcp.NewToolResultError(fmt.Sprintf("failed to list issues: %s", string(body))), nil
 			}
 
-			r, err := json.Marshal(issues)
+			// Create simplified types
+			type SimplifiedUser struct {
+				Login     string `json:"login,omitempty"`
+				AvatarURL string `json:"avatar_url,omitempty"`
+				HTMLURL   string `json:"html_url,omitempty"`
+			}
+
+			type SimplifiedLabel struct {
+				Name        string `json:"name,omitempty"`
+				Color       string `json:"color,omitempty"`
+				Description string `json:"description,omitempty"`
+			}
+
+			type SimplifiedIssue struct {
+				ID               int64             `json:"id,omitempty"`
+				Number           int               `json:"number"`
+				Title            string            `json:"title,omitempty"`
+				State            string            `json:"state,omitempty"`
+				HTMLURL          string            `json:"html_url,omitempty"`
+				Body             string            `json:"body,omitempty"`
+				User             *SimplifiedUser   `json:"user,omitempty"`
+				Labels           []SimplifiedLabel `json:"labels,omitempty"`
+				Assignees        []*SimplifiedUser `json:"assignees,omitempty"`
+				Comments         int               `json:"comments"`
+				CreatedAt        string            `json:"created_at,omitempty"`
+				UpdatedAt        string            `json:"updated_at,omitempty"`
+				ClosedAt         string            `json:"closed_at,omitempty"`
+				PullRequestLinks *struct {
+					URL string `json:"url,omitempty"`
+				} `json:"pull_request,omitempty"`
+			}
+
+			// Create simplified issues array
+			simplifiedIssues := make([]SimplifiedIssue, 0, len(issues))
+
+			for _, issue := range issues {
+				// Process user
+				var user *SimplifiedUser
+				if issue.User != nil {
+					user = &SimplifiedUser{
+						Login:     issue.User.GetLogin(),
+						AvatarURL: issue.User.GetAvatarURL(),
+						HTMLURL:   issue.User.GetHTMLURL(),
+					}
+				}
+
+				// Process assignees
+				assignees := make([]*SimplifiedUser, 0, len(issue.Assignees))
+				for _, assignee := range issue.Assignees {
+					if assignee != nil {
+						assignees = append(assignees, &SimplifiedUser{
+							Login:     assignee.GetLogin(),
+							AvatarURL: assignee.GetAvatarURL(),
+							HTMLURL:   assignee.GetHTMLURL(),
+						})
+					}
+				}
+
+				// Process labels
+				labels := make([]SimplifiedLabel, 0, len(issue.Labels))
+				for _, label := range issue.Labels {
+					labels = append(labels, SimplifiedLabel{
+						Name:        label.GetName(),
+						Color:       label.GetColor(),
+						Description: label.GetDescription(),
+					})
+				}
+
+				// Format dates as strings
+				var closedAtStr string
+				if issue.ClosedAt != nil && !issue.ClosedAt.IsZero() {
+					closedAtStr = issue.ClosedAt.Format(time.RFC3339)
+				}
+
+				// Create pull request link info if available
+				var prLinks *struct {
+					URL string `json:"url,omitempty"`
+				}
+
+				if issue.PullRequestLinks != nil {
+					prLinks = &struct {
+						URL string `json:"url,omitempty"`
+					}{
+						URL: issue.PullRequestLinks.GetURL(),
+					}
+				}
+
+				// Create simplified issue
+				simplifiedIssue := SimplifiedIssue{
+					ID:               issue.GetID(),
+					Number:           issue.GetNumber(),
+					Title:            issue.GetTitle(),
+					State:            issue.GetState(),
+					HTMLURL:          issue.GetHTMLURL(),
+					Body:             issue.GetBody(),
+					User:             user,
+					Labels:           labels,
+					Assignees:        assignees,
+					Comments:         issue.GetComments(),
+					CreatedAt:        issue.GetCreatedAt().Format(time.RFC3339),
+					UpdatedAt:        issue.GetUpdatedAt().Format(time.RFC3339),
+					ClosedAt:         closedAtStr,
+					PullRequestLinks: prLinks,
+				}
+
+				simplifiedIssues = append(simplifiedIssues, simplifiedIssue)
+			}
+
+			r, err := json.Marshal(simplifiedIssues)
 			if err != nil {
-				return nil, fmt.Errorf("failed to marshal issues: %w", err)
+				return nil, fmt.Errorf("failed to marshal simplified issues: %w", err)
 			}
 
 			return mcp.NewToolResultText(string(r)), nil
@@ -622,9 +1113,110 @@ func UpdateIssue(getClient GetClientFn, t translations.TranslationHelperFunc) (t
 				return mcp.NewToolResultError(fmt.Sprintf("failed to update issue: %s", string(body))), nil
 			}
 
-			r, err := json.Marshal(updatedIssue)
+			// Create simplified types
+			type SimplifiedUser struct {
+				Login     string `json:"login,omitempty"`
+				AvatarURL string `json:"avatar_url,omitempty"`
+				HTMLURL   string `json:"html_url,omitempty"`
+			}
+
+			type SimplifiedLabel struct {
+				Name        string `json:"name,omitempty"`
+				Color       string `json:"color,omitempty"`
+				Description string `json:"description,omitempty"`
+			}
+
+			type SimplifiedIssue struct {
+				ID               int64             `json:"id,omitempty"`
+				NodeID           string            `json:"node_id,omitempty"`
+				Number           int               `json:"number"`
+				Title            string            `json:"title,omitempty"`
+				State            string            `json:"state,omitempty"`
+				HTMLURL          string            `json:"html_url,omitempty"`
+				Body             string            `json:"body,omitempty"`
+				User             *SimplifiedUser   `json:"user,omitempty"`
+				Labels           []SimplifiedLabel `json:"labels,omitempty"`
+				Assignees        []*SimplifiedUser `json:"assignees,omitempty"`
+				Comments         int               `json:"comments"`
+				CreatedAt        string            `json:"created_at,omitempty"`
+				UpdatedAt        string            `json:"updated_at,omitempty"`
+				ClosedAt         string            `json:"closed_at,omitempty"`
+				PullRequestLinks *struct {
+					URL string `json:"url,omitempty"`
+				} `json:"pull_request,omitempty"`
+			}
+
+			// Process user
+			var user *SimplifiedUser
+			if updatedIssue.User != nil {
+				user = &SimplifiedUser{
+					Login:     updatedIssue.User.GetLogin(),
+					AvatarURL: updatedIssue.User.GetAvatarURL(),
+					HTMLURL:   updatedIssue.User.GetHTMLURL(),
+				}
+			}
+
+			// Process assignees (output)
+			assigneesOut := make([]*SimplifiedUser, 0, len(updatedIssue.Assignees))
+			for _, assignee := range updatedIssue.Assignees {
+				if assignee != nil {
+					assigneesOut = append(assigneesOut, &SimplifiedUser{
+						Login:     assignee.GetLogin(),
+						AvatarURL: assignee.GetAvatarURL(),
+						HTMLURL:   assignee.GetHTMLURL(),
+					})
+				}
+			}
+
+			// Process labels (output)
+			labelsOut := make([]SimplifiedLabel, 0, len(updatedIssue.Labels))
+			for _, label := range updatedIssue.Labels {
+				labelsOut = append(labelsOut, SimplifiedLabel{
+					Name:        label.GetName(),
+					Color:       label.GetColor(),
+					Description: label.GetDescription(),
+				})
+			}
+
+			// Format dates as strings
+			var closedAtStr string
+			if updatedIssue.ClosedAt != nil && !updatedIssue.ClosedAt.IsZero() {
+				closedAtStr = updatedIssue.ClosedAt.Format(time.RFC3339)
+			}
+
+			// Create pull request link info if available
+			var prLinks *struct {
+				URL string `json:"url,omitempty"`
+			}
+			if updatedIssue.PullRequestLinks != nil {
+				prLinks = &struct {
+					URL string `json:"url,omitempty"`
+				}{
+					URL: updatedIssue.PullRequestLinks.GetURL(),
+				}
+			}
+
+			// Create simplified issue
+			simplifiedIssue := SimplifiedIssue{
+				ID:               updatedIssue.GetID(),
+				Number:           updatedIssue.GetNumber(),
+				Title:            updatedIssue.GetTitle(),
+				State:            updatedIssue.GetState(),
+				HTMLURL:          updatedIssue.GetHTMLURL(),
+				Body:             updatedIssue.GetBody(),
+				User:             user,
+				Labels:           labelsOut,
+				Assignees:        assigneesOut,
+				Comments:         updatedIssue.GetComments(),
+				CreatedAt:        updatedIssue.GetCreatedAt().Format(time.RFC3339),
+				UpdatedAt:        updatedIssue.GetUpdatedAt().Format(time.RFC3339),
+				ClosedAt:         closedAtStr,
+				PullRequestLinks: prLinks,
+			}
+
+			r, err := json.Marshal(simplifiedIssue)
 			if err != nil {
-				return nil, fmt.Errorf("failed to marshal response: %w", err)
+				return nil, fmt.Errorf("failed to marshal simplified response: %w", err)
 			}
 
 			return mcp.NewToolResultText(string(r)), nil
@@ -705,9 +1297,52 @@ func GetIssueComments(getClient GetClientFn, t translations.TranslationHelperFun
 				return mcp.NewToolResultError(fmt.Sprintf("failed to get issue comments: %s", string(body))), nil
 			}
 
-			r, err := json.Marshal(comments)
+			// Create simplified types
+			type SimplifiedUser struct {
+				Login     string `json:"login,omitempty"`
+				AvatarURL string `json:"avatar_url,omitempty"`
+				HTMLURL   string `json:"html_url,omitempty"`
+			}
+
+			type SimplifiedComment struct {
+				ID        int64           `json:"id,omitempty"`
+				HTMLURL   string          `json:"html_url,omitempty"`
+				Body      string          `json:"body,omitempty"`
+				User      *SimplifiedUser `json:"user,omitempty"`
+				CreatedAt string          `json:"created_at,omitempty"`
+				UpdatedAt string          `json:"updated_at,omitempty"`
+			}
+
+			// Create simplified comments
+			simplifiedComments := make([]SimplifiedComment, 0, len(comments))
+
+			for _, comment := range comments {
+				// Process user
+				var user *SimplifiedUser
+				if comment.User != nil {
+					user = &SimplifiedUser{
+						Login:     comment.User.GetLogin(),
+						AvatarURL: comment.User.GetAvatarURL(),
+						HTMLURL:   comment.User.GetHTMLURL(),
+					}
+				}
+
+				// Create simplified comment
+				simplifiedComment := SimplifiedComment{
+					ID:        comment.GetID(),
+					HTMLURL:   comment.GetHTMLURL(),
+					Body:      comment.GetBody(),
+					User:      user,
+					CreatedAt: comment.GetCreatedAt().Format(time.RFC3339),
+					UpdatedAt: comment.GetUpdatedAt().Format(time.RFC3339),
+				}
+
+				simplifiedComments = append(simplifiedComments, simplifiedComment)
+			}
+
+			r, err := json.Marshal(simplifiedComments)
 			if err != nil {
-				return nil, fmt.Errorf("failed to marshal response: %w", err)
+				return nil, fmt.Errorf("failed to marshal simplified comments: %w", err)
 			}
 
 			return mcp.NewToolResultText(string(r)), nil

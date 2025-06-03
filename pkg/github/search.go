@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/github/github-mcp-server/pkg/translations"
 	"github.com/google/go-github/v72/github"
@@ -61,9 +62,69 @@ func SearchRepositories(getClient GetClientFn, t translations.TranslationHelperF
 				return mcp.NewToolResultError(fmt.Sprintf("failed to search repositories: %s", string(body))), nil
 			}
 
-			r, err := json.Marshal(result)
+			// Create a simplified version of the response with essential fields only
+			type SimplifiedOwner struct {
+				Login   string `json:"login,omitempty"`
+				HTMLURL string `json:"html_url,omitempty"`
+			}
+
+			type SimplifiedRepository struct {
+				Name            string           `json:"name,omitempty"`
+				FullName        string           `json:"full_name,omitempty"`
+				Description     string           `json:"description,omitempty"`
+				HTMLURL         string           `json:"html_url,omitempty"`
+				Language        string           `json:"language,omitempty"`
+				Private         bool             `json:"private"`
+				Archived        bool             `json:"archived"`
+				CreatedAt       string           `json:"created_at,omitempty"`
+				UpdatedAt       string           `json:"updated_at,omitempty"`
+				OpenIssuesCount int              `json:"open_issues_count"`
+				Topics          []string         `json:"topics,omitempty"`
+				Owner           *SimplifiedOwner `json:"owner,omitempty"`
+			}
+
+			type SimplifiedResponse struct {
+				TotalCount        int                    `json:"total_count"`
+				IncompleteResults bool                   `json:"incomplete_results"`
+				Items             []SimplifiedRepository `json:"items"`
+			}
+
+			simplifiedResult := SimplifiedResponse{
+				TotalCount:        result.GetTotal(),
+				IncompleteResults: result.GetIncompleteResults(),
+				Items:             make([]SimplifiedRepository, 0, len(result.Repositories)),
+			}
+
+			for _, repo := range result.Repositories {
+				var ownerInfo *SimplifiedOwner
+				if repo.Owner != nil {
+					ownerInfo = &SimplifiedOwner{
+						Login:   repo.Owner.GetLogin(),
+						HTMLURL: repo.Owner.GetHTMLURL(),
+					}
+				}
+
+				simplifiedRepo := SimplifiedRepository{
+					Name:            repo.GetName(),
+					FullName:        repo.GetFullName(),
+					Description:     repo.GetDescription(),
+					HTMLURL:         repo.GetHTMLURL(),
+					Language:        repo.GetLanguage(),
+					Private:         repo.GetPrivate(),
+					Archived:        repo.GetArchived(),
+					CreatedAt:       repo.GetCreatedAt().Format(time.RFC3339),
+					UpdatedAt:       repo.GetUpdatedAt().Format(time.RFC3339),
+					OpenIssuesCount: repo.GetOpenIssuesCount(),
+					Topics:          repo.Topics,
+					Owner:           ownerInfo,
+				}
+
+				simplifiedResult.Items = append(simplifiedResult.Items, simplifiedRepo)
+			}
+
+			r, err := json.Marshal(simplifiedResult)
 			if err != nil {
-				return nil, fmt.Errorf("failed to marshal response: %w", err)
+				return nil, fmt.Errorf("failed to marshal simplified response: %w", err)
 			}
 
 			return mcp.NewToolResultText(string(r)), nil
@@ -137,9 +198,59 @@ func SearchCode(getClient GetClientFn, t translations.TranslationHelperFunc) (to
 				return mcp.NewToolResultError(fmt.Sprintf("failed to search code: %s", string(body))), nil
 			}
 
-			r, err := json.Marshal(result)
+			// Create a simplified version of the response with essential fields only
+			type SimplifiedRepository struct {
+				Name     string `json:"name,omitempty"`
+				FullName string `json:"full_name,omitempty"`
+				HTMLURL  string `json:"html_url,omitempty"`
+			}
+
+			type SimplifiedCodeResult struct {
+				Name        string               `json:"name,omitempty"`
+				Path        string               `json:"path,omitempty"`
+				HTMLURL     string               `json:"html_url,omitempty"`
+				Repository  SimplifiedRepository `json:"repository,omitempty"`
+				TextMatches []*github.TextMatch  `json:"text_matches,omitempty"`
+			}
+
+			type SimplifiedCodeResponse struct {
+				TotalCount        int                    `json:"total_count"`
+				IncompleteResults bool                   `json:"incomplete_results"`
+				Items             []SimplifiedCodeResult `json:"items"`
+			}
+
+			simplifiedResult := SimplifiedCodeResponse{
+				TotalCount:        result.GetTotal(),
+				IncompleteResults: result.GetIncompleteResults(),
+				Items:             make([]SimplifiedCodeResult, 0, len(result.CodeResults)),
+			}
+
+			for _, codeResult := range result.CodeResults {
+				simplifiedCodeResult := SimplifiedCodeResult{
+					Name:    codeResult.GetName(),
+					Path:    codeResult.GetPath(),
+					HTMLURL: codeResult.GetHTMLURL(),
+				}
+
+				if codeResult.Repository != nil {
+					simplifiedCodeResult.Repository = SimplifiedRepository{
+						Name:     codeResult.Repository.GetName(),
+						FullName: codeResult.Repository.GetFullName(),
+						HTMLURL:  codeResult.Repository.GetHTMLURL(),
+					}
+				}
+
+				// Preserve text matches if present (important for search context)
+				if codeResult.TextMatches != nil {
+					simplifiedCodeResult.TextMatches = codeResult.TextMatches
+				}
+
+				simplifiedResult.Items = append(simplifiedResult.Items, simplifiedCodeResult)
+			}
+
+			r, err := json.Marshal(simplifiedResult)
 			if err != nil {
-				return nil, fmt.Errorf("failed to marshal response: %w", err)
+				return nil, fmt.Errorf("failed to marshal simplified response: %w", err)
 			}
 
 			return mcp.NewToolResultText(string(r)), nil
@@ -214,9 +325,64 @@ func SearchUsers(getClient GetClientFn, t translations.TranslationHelperFunc) (t
 				return mcp.NewToolResultError(fmt.Sprintf("failed to search users: %s", string(body))), nil
 			}
 
-			r, err := json.Marshal(result)
+			// Create a simplified version of the response with essential fields only
+			type SimplifiedUser struct {
+				Login       string `json:"login,omitempty"`
+				ID          int64  `json:"id,omitempty"`
+				NodeID      string `json:"node_id,omitempty"`
+				AvatarURL   string `json:"avatar_url,omitempty"`
+				HTMLURL     string `json:"html_url,omitempty"`
+				Type        string `json:"type,omitempty"`
+				Name        string `json:"name,omitempty"`
+				Company     string `json:"company,omitempty"`
+				Blog        string `json:"blog,omitempty"`
+				Location    string `json:"location,omitempty"`
+				Email       string `json:"email,omitempty"`
+				Bio         string `json:"bio,omitempty"`
+				Twitter     string `json:"twitter_username,omitempty"`
+				PublicRepos int    `json:"public_repos,omitempty"`
+				Followers   int    `json:"followers,omitempty"`
+				Following   int    `json:"following,omitempty"`
+			}
+
+			type SimplifiedUsersResponse struct {
+				TotalCount        int              `json:"total_count"`
+				IncompleteResults bool             `json:"incomplete_results"`
+				Items             []SimplifiedUser `json:"items"`
+			}
+
+			simplifiedResult := SimplifiedUsersResponse{
+				TotalCount:        result.GetTotal(),
+				IncompleteResults: result.GetIncompleteResults(),
+				Items:             make([]SimplifiedUser, 0, len(result.Users)),
+			}
+
+			for _, user := range result.Users {
+				simplifiedUser := SimplifiedUser{
+					Login:       user.GetLogin(),
+					ID:          user.GetID(),
+					NodeID:      user.GetNodeID(),
+					AvatarURL:   user.GetAvatarURL(),
+					HTMLURL:     user.GetHTMLURL(),
+					Type:        user.GetType(),
+					Name:        user.GetName(),
+					Company:     user.GetCompany(),
+					Blog:        user.GetBlog(),
+					Location:    user.GetLocation(),
+					Email:       user.GetEmail(),
+					Bio:         user.GetBio(),
+					Twitter:     user.GetTwitterUsername(),
+					PublicRepos: user.GetPublicRepos(),
+					Followers:   user.GetFollowers(),
+					Following:   user.GetFollowing(),
+				}
+
+				simplifiedResult.Items = append(simplifiedResult.Items, simplifiedUser)
+			}
+
+			r, err := json.Marshal(simplifiedResult)
 			if err != nil {
-				return nil, fmt.Errorf("failed to marshal response: %w", err)
+				return nil, fmt.Errorf("failed to marshal simplified response: %w", err)
 			}
 
 			return mcp.NewToolResultText(string(r)), nil

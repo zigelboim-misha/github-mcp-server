@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/google/go-github/v72/github"
@@ -69,9 +70,156 @@ func GetPullRequest(getClient GetClientFn, t translations.TranslationHelperFunc)
 				return mcp.NewToolResultError(fmt.Sprintf("failed to get pull request: %s", string(body))), nil
 			}
 
-			r, err := json.Marshal(pr)
+			// Create simplified user structure
+			type SimplifiedUser struct {
+				Login     string `json:"login,omitempty"`
+				AvatarURL string `json:"avatar_url,omitempty"`
+				HTMLURL   string `json:"html_url,omitempty"`
+			}
+
+			// Create simplified label structure
+			type SimplifiedLabel struct {
+				Name        string `json:"name,omitempty"`
+				Color       string `json:"color,omitempty"`
+				Description string `json:"description,omitempty"`
+			}
+
+			// Create simplified pull request structure
+			type SimplifiedPullRequest struct {
+				ID        int64  `json:"id"`
+				Number    int    `json:"number"`
+				State     string `json:"state,omitempty"`
+				Locked    bool   `json:"locked"`
+				Title     string `json:"title,omitempty"`
+				Body      string `json:"body,omitempty"`
+				HTMLURL   string `json:"html_url,omitempty"`
+				CreatedAt string `json:"created_at,omitempty"`
+				UpdatedAt string `json:"updated_at,omitempty"`
+				ClosedAt  string `json:"closed_at,omitempty"`
+				MergedAt  string `json:"merged_at,omitempty"`
+
+				User      *SimplifiedUser  `json:"user,omitempty"`
+				Assignee  *SimplifiedUser  `json:"assignee,omitempty"`
+				Assignees []SimplifiedUser `json:"assignees,omitempty"`
+
+				Labels []SimplifiedLabel `json:"labels,omitempty"`
+
+				Draft          bool   `json:"draft"`
+				Merged         bool   `json:"merged"`
+				Mergeable      bool   `json:"mergeable"`
+				MergeableState string `json:"mergeable_state,omitempty"`
+
+				Head struct {
+					Label string `json:"label,omitempty"`
+					Ref   string `json:"ref,omitempty"`
+					SHA   string `json:"sha,omitempty"`
+				} `json:"head,omitempty"`
+
+				Base struct {
+					Label string `json:"label,omitempty"`
+					Ref   string `json:"ref,omitempty"`
+					SHA   string `json:"sha,omitempty"`
+				} `json:"base,omitempty"`
+
+				Comments     int `json:"comments"`
+				Commits      int `json:"commits"`
+				Additions    int `json:"additions"`
+				Deletions    int `json:"deletions"`
+				ChangedFiles int `json:"changed_files"`
+			}
+
+			// Create simplified pull request instance
+			simplifiedPR := SimplifiedPullRequest{
+				ID:             pr.GetID(),
+				Number:         pr.GetNumber(),
+				State:          pr.GetState(),
+				Locked:         pr.GetLocked(),
+				Title:          pr.GetTitle(),
+				Body:           pr.GetBody(),
+				HTMLURL:        pr.GetHTMLURL(),
+				Draft:          pr.GetDraft(),
+				Merged:         pr.GetMerged(),
+				Mergeable:      pr.GetMergeable(),
+				MergeableState: pr.GetMergeableState(),
+				Comments:       pr.GetComments(),
+				Commits:        pr.GetCommits(),
+				Additions:      pr.GetAdditions(),
+				Deletions:      pr.GetDeletions(),
+				ChangedFiles:   pr.GetChangedFiles(),
+			}
+
+			// Format dates
+			if pr.CreatedAt != nil {
+				simplifiedPR.CreatedAt = pr.CreatedAt.Format(time.RFC3339)
+			}
+			if pr.UpdatedAt != nil {
+				simplifiedPR.UpdatedAt = pr.UpdatedAt.Format(time.RFC3339)
+			}
+			if pr.ClosedAt != nil && !pr.ClosedAt.IsZero() {
+				simplifiedPR.ClosedAt = pr.ClosedAt.Format(time.RFC3339)
+			}
+			if pr.MergedAt != nil && !pr.MergedAt.IsZero() {
+				simplifiedPR.MergedAt = pr.MergedAt.Format(time.RFC3339)
+			}
+
+			// Add user
+			if pr.User != nil {
+				simplifiedPR.User = &SimplifiedUser{
+					Login:     pr.User.GetLogin(),
+					AvatarURL: pr.User.GetAvatarURL(),
+					HTMLURL:   pr.User.GetHTMLURL(),
+				}
+			}
+
+			// Add assignee
+			if pr.Assignee != nil {
+				simplifiedPR.Assignee = &SimplifiedUser{
+					Login:     pr.Assignee.GetLogin(),
+					AvatarURL: pr.Assignee.GetAvatarURL(),
+					HTMLURL:   pr.Assignee.GetHTMLURL(),
+				}
+			}
+
+			// Add assignees
+			if pr.Assignees != nil {
+				simplifiedPR.Assignees = make([]SimplifiedUser, 0, len(pr.Assignees))
+				for _, assignee := range pr.Assignees {
+					simplifiedPR.Assignees = append(simplifiedPR.Assignees, SimplifiedUser{
+						Login:     assignee.GetLogin(),
+						AvatarURL: assignee.GetAvatarURL(),
+						HTMLURL:   assignee.GetHTMLURL(),
+					})
+				}
+			}
+
+			// Add labels
+			if pr.Labels != nil {
+				simplifiedPR.Labels = make([]SimplifiedLabel, 0, len(pr.Labels))
+				for _, label := range pr.Labels {
+					simplifiedPR.Labels = append(simplifiedPR.Labels, SimplifiedLabel{
+						Name:        label.GetName(),
+						Color:       label.GetColor(),
+						Description: label.GetDescription(),
+					})
+				}
+			}
+
+			// Add head and base info
+			if pr.Head != nil {
+				simplifiedPR.Head.Label = pr.Head.GetLabel()
+				simplifiedPR.Head.Ref = pr.Head.GetRef()
+				simplifiedPR.Head.SHA = pr.Head.GetSHA()
+			}
+
+			if pr.Base != nil {
+				simplifiedPR.Base.Label = pr.Base.GetLabel()
+				simplifiedPR.Base.Ref = pr.Base.GetRef()
+				simplifiedPR.Base.SHA = pr.Base.GetSHA()
+			}
+
+			r, err := json.Marshal(simplifiedPR)
 			if err != nil {
-				return nil, fmt.Errorf("failed to marshal response: %w", err)
+				return nil, fmt.Errorf("failed to marshal simplified pull request: %w", err)
 			}
 
 			return mcp.NewToolResultText(string(r)), nil
@@ -184,9 +332,88 @@ func CreatePullRequest(getClient GetClientFn, t translations.TranslationHelperFu
 				return mcp.NewToolResultError(fmt.Sprintf("failed to create pull request: %s", string(body))), nil
 			}
 
-			r, err := json.Marshal(pr)
+			// Create simplified user structure
+			type SimplifiedUser struct {
+				Login     string `json:"login,omitempty"`
+				AvatarURL string `json:"avatar_url,omitempty"`
+				HTMLURL   string `json:"html_url,omitempty"`
+			}
+
+			// Create simplified label structure
+			type SimplifiedLabel struct {
+				Name        string `json:"name,omitempty"`
+				Color       string `json:"color,omitempty"`
+				Description string `json:"description,omitempty"`
+			}
+
+			// Create simplified pull request structure
+			type SimplifiedPullRequest struct {
+				ID        int64  `json:"id"`
+				Number    int    `json:"number"`
+				State     string `json:"state,omitempty"`
+				Title     string `json:"title,omitempty"`
+				Body      string `json:"body,omitempty"`
+				HTMLURL   string `json:"html_url,omitempty"`
+				CreatedAt string `json:"created_at,omitempty"`
+
+				User *SimplifiedUser `json:"user,omitempty"`
+
+				Head struct {
+					Label string `json:"label,omitempty"`
+					Ref   string `json:"ref,omitempty"`
+					SHA   string `json:"sha,omitempty"`
+				} `json:"head,omitempty"`
+
+				Base struct {
+					Label string `json:"label,omitempty"`
+					Ref   string `json:"ref,omitempty"`
+					SHA   string `json:"sha,omitempty"`
+				} `json:"base,omitempty"`
+
+				Draft bool `json:"draft"`
+			}
+
+			// Create simplified pull request instance
+			simplifiedPR := SimplifiedPullRequest{
+				ID:      pr.GetID(),
+				Number:  pr.GetNumber(),
+				State:   pr.GetState(),
+				Title:   pr.GetTitle(),
+				Body:    pr.GetBody(),
+				HTMLURL: pr.GetHTMLURL(),
+				Draft:   pr.GetDraft(),
+			}
+
+			// Format dates
+			if pr.CreatedAt != nil {
+				simplifiedPR.CreatedAt = pr.CreatedAt.Format(time.RFC3339)
+			}
+
+			// Add user
+			if pr.User != nil {
+				simplifiedPR.User = &SimplifiedUser{
+					Login:     pr.User.GetLogin(),
+					AvatarURL: pr.User.GetAvatarURL(),
+					HTMLURL:   pr.User.GetHTMLURL(),
+				}
+			}
+
+			// Add head and base info
+			if pr.Head != nil {
+				simplifiedPR.Head.Label = pr.Head.GetLabel()
+				simplifiedPR.Head.Ref = pr.Head.GetRef()
+				simplifiedPR.Head.SHA = pr.Head.GetSHA()
+			}
+
+			if pr.Base != nil {
+				simplifiedPR.Base.Label = pr.Base.GetLabel()
+				simplifiedPR.Base.Ref = pr.Base.GetRef()
+				simplifiedPR.Base.SHA = pr.Base.GetSHA()
+			}
+
+			r, err := json.Marshal(simplifiedPR)
 			if err != nil {
-				return nil, fmt.Errorf("failed to marshal response: %w", err)
+				return nil, fmt.Errorf("failed to marshal simplified pull request: %w", err)
 			}
 
 			return mcp.NewToolResultText(string(r)), nil
@@ -305,9 +532,88 @@ func UpdatePullRequest(getClient GetClientFn, t translations.TranslationHelperFu
 				return mcp.NewToolResultError(fmt.Sprintf("failed to update pull request: %s", string(body))), nil
 			}
 
-			r, err := json.Marshal(pr)
+			// Create simplified user structure
+			type SimplifiedUser struct {
+				Login     string `json:"login,omitempty"`
+				AvatarURL string `json:"avatar_url,omitempty"`
+				HTMLURL   string `json:"html_url,omitempty"`
+			}
+
+			// Create simplified label structure
+			type SimplifiedLabel struct {
+				Name        string `json:"name,omitempty"`
+				Color       string `json:"color,omitempty"`
+				Description string `json:"description,omitempty"`
+			}
+
+			// Create simplified pull request structure
+			type SimplifiedPullRequest struct {
+				ID        int64  `json:"id"`
+				Number    int    `json:"number"`
+				State     string `json:"state,omitempty"`
+				Title     string `json:"title,omitempty"`
+				Body      string `json:"body,omitempty"`
+				HTMLURL   string `json:"html_url,omitempty"`
+				UpdatedAt string `json:"updated_at,omitempty"`
+
+				User *SimplifiedUser `json:"user,omitempty"`
+
+				Head struct {
+					Label string `json:"label,omitempty"`
+					Ref   string `json:"ref,omitempty"`
+					SHA   string `json:"sha,omitempty"`
+				} `json:"head,omitempty"`
+
+				Base struct {
+					Label string `json:"label,omitempty"`
+					Ref   string `json:"ref,omitempty"`
+					SHA   string `json:"sha,omitempty"`
+				} `json:"base,omitempty"`
+
+				MaintainerCanModify bool `json:"maintainer_can_modify"`
+			}
+
+			// Create simplified pull request instance
+			simplifiedPR := SimplifiedPullRequest{
+				ID:                  pr.GetID(),
+				Number:              pr.GetNumber(),
+				State:               pr.GetState(),
+				Title:               pr.GetTitle(),
+				Body:                pr.GetBody(),
+				HTMLURL:             pr.GetHTMLURL(),
+				MaintainerCanModify: pr.GetMaintainerCanModify(),
+			}
+
+			// Format dates
+			if pr.UpdatedAt != nil {
+				simplifiedPR.UpdatedAt = pr.UpdatedAt.Format(time.RFC3339)
+			}
+
+			// Add user
+			if pr.User != nil {
+				simplifiedPR.User = &SimplifiedUser{
+					Login:     pr.User.GetLogin(),
+					AvatarURL: pr.User.GetAvatarURL(),
+					HTMLURL:   pr.User.GetHTMLURL(),
+				}
+			}
+
+			// Add head and base info
+			if pr.Head != nil {
+				simplifiedPR.Head.Label = pr.Head.GetLabel()
+				simplifiedPR.Head.Ref = pr.Head.GetRef()
+				simplifiedPR.Head.SHA = pr.Head.GetSHA()
+			}
+
+			if pr.Base != nil {
+				simplifiedPR.Base.Label = pr.Base.GetLabel()
+				simplifiedPR.Base.Ref = pr.Base.GetRef()
+				simplifiedPR.Base.SHA = pr.Base.GetSHA()
+			}
+
+			r, err := json.Marshal(simplifiedPR)
 			if err != nil {
-				return nil, fmt.Errorf("failed to marshal response: %w", err)
+				return nil, fmt.Errorf("failed to marshal simplified pull request: %w", err)
 			}
 
 			return mcp.NewToolResultText(string(r)), nil
@@ -414,9 +720,83 @@ func ListPullRequests(getClient GetClientFn, t translations.TranslationHelperFun
 				return mcp.NewToolResultError(fmt.Sprintf("failed to list pull requests: %s", string(body))), nil
 			}
 
-			r, err := json.Marshal(prs)
+			// Create simplified user structure
+			type SimplifiedUser struct {
+				Login     string `json:"login,omitempty"`
+				AvatarURL string `json:"avatar_url,omitempty"`
+				HTMLURL   string `json:"html_url,omitempty"`
+			}
+
+			// Create simplified PR structure
+			type SimplifiedPR struct {
+				ID        int64  `json:"id"`
+				Number    int    `json:"number"`
+				State     string `json:"state,omitempty"`
+				Title     string `json:"title,omitempty"`
+				HTMLURL   string `json:"html_url,omitempty"`
+				CreatedAt string `json:"created_at,omitempty"`
+				UpdatedAt string `json:"updated_at,omitempty"`
+
+				User *SimplifiedUser `json:"user,omitempty"`
+
+				Head struct {
+					Ref string `json:"ref,omitempty"`
+					SHA string `json:"sha,omitempty"`
+				} `json:"head,omitempty"`
+
+				Base struct {
+					Ref string `json:"ref,omitempty"`
+				} `json:"base,omitempty"`
+
+				Draft bool `json:"draft"`
+			}
+
+			// Create simplified PRs list
+			simplifiedPRs := make([]SimplifiedPR, 0, len(prs))
+
+			for _, pr := range prs {
+				simplifiedPR := SimplifiedPR{
+					ID:      pr.GetID(),
+					Number:  pr.GetNumber(),
+					State:   pr.GetState(),
+					Title:   pr.GetTitle(),
+					HTMLURL: pr.GetHTMLURL(),
+					Draft:   pr.GetDraft(),
+				}
+
+				// Format dates
+				if pr.CreatedAt != nil {
+					simplifiedPR.CreatedAt = pr.CreatedAt.Format(time.RFC3339)
+				}
+				if pr.UpdatedAt != nil {
+					simplifiedPR.UpdatedAt = pr.UpdatedAt.Format(time.RFC3339)
+				}
+
+				// Add user
+				if pr.User != nil {
+					simplifiedPR.User = &SimplifiedUser{
+						Login:     pr.User.GetLogin(),
+						AvatarURL: pr.User.GetAvatarURL(),
+						HTMLURL:   pr.User.GetHTMLURL(),
+					}
+				}
+
+				// Add head and base info
+				if pr.Head != nil {
+					simplifiedPR.Head.Ref = pr.Head.GetRef()
+					simplifiedPR.Head.SHA = pr.Head.GetSHA()
+				}
+
+				if pr.Base != nil {
+					simplifiedPR.Base.Ref = pr.Base.GetRef()
+				}
+
+				simplifiedPRs = append(simplifiedPRs, simplifiedPR)
+			}
+
+			r, err := json.Marshal(simplifiedPRs)
 			if err != nil {
-				return nil, fmt.Errorf("failed to marshal response: %w", err)
+				return nil, fmt.Errorf("failed to marshal simplified pull requests: %w", err)
 			}
 
 			return mcp.NewToolResultText(string(r)), nil
@@ -503,9 +883,23 @@ func MergePullRequest(getClient GetClientFn, t translations.TranslationHelperFun
 				return mcp.NewToolResultError(fmt.Sprintf("failed to merge pull request: %s", string(body))), nil
 			}
 
-			r, err := json.Marshal(result)
+			// Create simplified merge result structure
+			type SimplifiedMergeResult struct {
+				Merged  bool   `json:"merged"`
+				Message string `json:"message,omitempty"`
+				SHA     string `json:"sha,omitempty"`
+			}
+
+			// Create simplified merge result instance
+			simplifiedResult := SimplifiedMergeResult{
+				Merged:  result.GetMerged(),
+				Message: result.GetMessage(),
+				SHA:     result.GetSHA(),
+			}
+
+			r, err := json.Marshal(simplifiedResult)
 			if err != nil {
-				return nil, fmt.Errorf("failed to marshal response: %w", err)
+				return nil, fmt.Errorf("failed to marshal simplified response: %w", err)
 			}
 
 			return mcp.NewToolResultText(string(r)), nil
@@ -566,9 +960,39 @@ func GetPullRequestFiles(getClient GetClientFn, t translations.TranslationHelper
 				return mcp.NewToolResultError(fmt.Sprintf("failed to get pull request files: %s", string(body))), nil
 			}
 
-			r, err := json.Marshal(files)
+			// Create simplified file structure
+			type SimplifiedPRFile struct {
+				Filename    string `json:"filename"`
+				Status      string `json:"status,omitempty"`
+				Additions   int    `json:"additions"`
+				Deletions   int    `json:"deletions"`
+				Changes     int    `json:"changes"`
+				BlobURL     string `json:"blob_url,omitempty"`
+				RawURL      string `json:"raw_url,omitempty"`
+				ContentsURL string `json:"contents_url,omitempty"`
+				Patch       string `json:"patch,omitempty"`
+			}
+
+			// Create list of simplified files
+			simplifiedFiles := make([]SimplifiedPRFile, 0, len(files))
+			for _, file := range files {
+				simplified := SimplifiedPRFile{
+					Filename:    file.GetFilename(),
+					Status:      file.GetStatus(),
+					Additions:   file.GetAdditions(),
+					Deletions:   file.GetDeletions(),
+					Changes:     file.GetChanges(),
+					BlobURL:     file.GetBlobURL(),
+					RawURL:      file.GetRawURL(),
+					ContentsURL: file.GetContentsURL(),
+					Patch:       file.GetPatch(),
+				}
+				simplifiedFiles = append(simplifiedFiles, simplified)
+			}
+
+			r, err := json.Marshal(simplifiedFiles)
 			if err != nil {
-				return nil, fmt.Errorf("failed to marshal response: %w", err)
+				return nil, fmt.Errorf("failed to marshal simplified response: %w", err)
 			}
 
 			return mcp.NewToolResultText(string(r)), nil
@@ -643,9 +1067,54 @@ func GetPullRequestStatus(getClient GetClientFn, t translations.TranslationHelpe
 				return mcp.NewToolResultError(fmt.Sprintf("failed to get combined status: %s", string(body))), nil
 			}
 
-			r, err := json.Marshal(status)
+			// Create simplified status structure
+			type SimplifiedStatusItem struct {
+				State       string `json:"state,omitempty"`
+				Description string `json:"description,omitempty"`
+				Context     string `json:"context,omitempty"`
+				TargetURL   string `json:"target_url,omitempty"`
+				CreatedAt   string `json:"created_at,omitempty"`
+				UpdatedAt   string `json:"updated_at,omitempty"`
+			}
+
+			type SimplifiedCombinedStatus struct {
+				State      string                 `json:"state,omitempty"`
+				SHA        string                 `json:"sha,omitempty"`
+				TotalCount int                    `json:"total_count"`
+				Statuses   []SimplifiedStatusItem `json:"statuses,omitempty"`
+			}
+
+			// Create simplified status instance
+			simplifiedStatus := SimplifiedCombinedStatus{
+				State:      status.GetState(),
+				SHA:        status.GetSHA(),
+				TotalCount: status.GetTotalCount(),
+				Statuses:   make([]SimplifiedStatusItem, 0, len(status.Statuses)),
+			}
+
+			// Add status items
+			for _, item := range status.Statuses {
+				simplifiedItem := SimplifiedStatusItem{
+					State:       item.GetState(),
+					Description: item.GetDescription(),
+					Context:     item.GetContext(),
+					TargetURL:   item.GetTargetURL(),
+				}
+
+				// Format dates
+				if item.CreatedAt != nil {
+					simplifiedItem.CreatedAt = item.CreatedAt.Format(time.RFC3339)
+				}
+				if item.UpdatedAt != nil {
+					simplifiedItem.UpdatedAt = item.UpdatedAt.Format(time.RFC3339)
+				}
+
+				simplifiedStatus.Statuses = append(simplifiedStatus.Statuses, simplifiedItem)
+			}
+
+			r, err := json.Marshal(simplifiedStatus)
 			if err != nil {
-				return nil, fmt.Errorf("failed to marshal response: %w", err)
+				return nil, fmt.Errorf("failed to marshal simplified response: %w", err)
 			}
 
 			return mcp.NewToolResultText(string(r)), nil
@@ -721,9 +1190,21 @@ func UpdatePullRequestBranch(getClient GetClientFn, t translations.TranslationHe
 				return mcp.NewToolResultError(fmt.Sprintf("failed to update pull request branch: %s", string(body))), nil
 			}
 
-			r, err := json.Marshal(result)
+			// Create simplified update result structure
+			type SimplifiedUpdateResult struct {
+				Message string `json:"message,omitempty"`
+				URL     string `json:"url,omitempty"`
+			}
+
+			// Create simplified update result instance
+			simplifiedResult := SimplifiedUpdateResult{
+				Message: result.GetMessage(),
+				URL:     result.GetURL(),
+			}
+
+			r, err := json.Marshal(simplifiedResult)
 			if err != nil {
-				return nil, fmt.Errorf("failed to marshal response: %w", err)
+				return nil, fmt.Errorf("failed to marshal simplified response: %w", err)
 			}
 
 			return mcp.NewToolResultText(string(r)), nil
@@ -789,9 +1270,68 @@ func GetPullRequestComments(getClient GetClientFn, t translations.TranslationHel
 				return mcp.NewToolResultError(fmt.Sprintf("failed to get pull request comments: %s", string(body))), nil
 			}
 
-			r, err := json.Marshal(comments)
+			// Create simplified comment structure
+			type SimplifiedUser struct {
+				Login     string `json:"login,omitempty"`
+				HTMLURL   string `json:"html_url,omitempty"`
+				AvatarURL string `json:"avatar_url,omitempty"`
+			}
+
+			type SimplifiedComment struct {
+				ID        int64          `json:"id"`
+				Body      string         `json:"body,omitempty"`
+				HTMLURL   string         `json:"html_url,omitempty"`
+				CreatedAt string         `json:"created_at,omitempty"`
+				UpdatedAt string         `json:"updated_at,omitempty"`
+				User      SimplifiedUser `json:"user,omitempty"`
+				Position  int            `json:"position,omitempty"`
+				Path      string         `json:"path,omitempty"`
+				DiffHunk  string         `json:"diff_hunk,omitempty"`
+				Reactions struct {
+					TotalCount int `json:"total_count"`
+				} `json:"reactions,omitempty"`
+			}
+
+			// Create list of simplified comments
+			simplifiedComments := make([]SimplifiedComment, 0, len(comments))
+			for _, comment := range comments {
+				simplified := SimplifiedComment{
+					ID:       comment.GetID(),
+					Body:     comment.GetBody(),
+					HTMLURL:  comment.GetHTMLURL(),
+					Position: comment.GetPosition(),
+					Path:     comment.GetPath(),
+					DiffHunk: comment.GetDiffHunk(),
+				}
+
+				// Format dates
+				if comment.CreatedAt != nil {
+					simplified.CreatedAt = comment.CreatedAt.Format(time.RFC3339)
+				}
+				if comment.UpdatedAt != nil {
+					simplified.UpdatedAt = comment.UpdatedAt.Format(time.RFC3339)
+				}
+
+				// Add user information
+				if comment.User != nil {
+					simplified.User = SimplifiedUser{
+						Login:     comment.User.GetLogin(),
+						HTMLURL:   comment.User.GetHTMLURL(),
+						AvatarURL: comment.User.GetAvatarURL(),
+					}
+				}
+
+				// Add reactions
+				if comment.Reactions != nil {
+					simplified.Reactions.TotalCount = comment.Reactions.GetTotalCount()
+				}
+
+				simplifiedComments = append(simplifiedComments, simplified)
+			}
+
+			r, err := json.Marshal(simplifiedComments)
 			if err != nil {
-				return nil, fmt.Errorf("failed to marshal response: %w", err)
+				return nil, fmt.Errorf("failed to marshal simplified response: %w", err)
 			}
 
 			return mcp.NewToolResultText(string(r)), nil
@@ -851,9 +1391,54 @@ func GetPullRequestReviews(getClient GetClientFn, t translations.TranslationHelp
 				return mcp.NewToolResultError(fmt.Sprintf("failed to get pull request reviews: %s", string(body))), nil
 			}
 
-			r, err := json.Marshal(reviews)
+			// Create simplified review structure
+			type SimplifiedUser struct {
+				Login     string `json:"login,omitempty"`
+				HTMLURL   string `json:"html_url,omitempty"`
+				AvatarURL string `json:"avatar_url,omitempty"`
+			}
+
+			type SimplifiedReview struct {
+				ID          int64          `json:"id"`
+				User        SimplifiedUser `json:"user,omitempty"`
+				Body        string         `json:"body,omitempty"`
+				State       string         `json:"state,omitempty"`
+				HTMLURL     string         `json:"html_url,omitempty"`
+				SubmittedAt string         `json:"submitted_at,omitempty"`
+				CommitID    string         `json:"commit_id,omitempty"`
+			}
+
+			// Create list of simplified reviews
+			simplifiedReviews := make([]SimplifiedReview, 0, len(reviews))
+			for _, review := range reviews {
+				simplified := SimplifiedReview{
+					ID:       review.GetID(),
+					Body:     review.GetBody(),
+					State:    review.GetState(),
+					HTMLURL:  review.GetHTMLURL(),
+					CommitID: review.GetCommitID(),
+				}
+
+				// Format dates
+				if review.SubmittedAt != nil {
+					simplified.SubmittedAt = review.SubmittedAt.Format(time.RFC3339)
+				}
+
+				// Add user information
+				if review.User != nil {
+					simplified.User = SimplifiedUser{
+						Login:     review.User.GetLogin(),
+						HTMLURL:   review.User.GetHTMLURL(),
+						AvatarURL: review.User.GetAvatarURL(),
+					}
+				}
+
+				simplifiedReviews = append(simplifiedReviews, simplified)
+			}
+
+			r, err := json.Marshal(simplifiedReviews)
 			if err != nil {
-				return nil, fmt.Errorf("failed to marshal response: %w", err)
+				return nil, fmt.Errorf("failed to marshal simplified response: %w", err)
 			}
 
 			return mcp.NewToolResultText(string(r)), nil

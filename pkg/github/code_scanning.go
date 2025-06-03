@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/github/github-mcp-server/pkg/translations"
 	"github.com/google/go-github/v72/github"
@@ -66,9 +67,121 @@ func GetCodeScanningAlert(getClient GetClientFn, t translations.TranslationHelpe
 				return mcp.NewToolResultError(fmt.Sprintf("failed to get alert: %s", string(body))), nil
 			}
 
-			r, err := json.Marshal(alert)
+			// Create simplified location structure
+			type SimplifiedLocation struct {
+				Path        string `json:"path,omitempty"`
+				StartLine   int    `json:"start_line"`
+				EndLine     int    `json:"end_line"`
+				StartColumn int    `json:"start_column"`
+				EndColumn   int    `json:"end_column"`
+			}
+
+			// Create simplified rule structure
+			type SimplifiedRule struct {
+				ID               string `json:"id,omitempty"`
+				Name             string `json:"name,omitempty"`
+				Severity         string `json:"severity,omitempty"`
+				Description      string `json:"description,omitempty"`
+				SecuritySeverity string `json:"security_severity,omitempty"`
+			}
+
+			// Create simplified tool structure
+			type SimplifiedTool struct {
+				Name    string `json:"name,omitempty"`
+				Version string `json:"version,omitempty"`
+			}
+
+			// Create simplified alert structure
+			type SimplifiedAlert struct {
+				Number             int64          `json:"number"`
+				CreatedAt          string         `json:"created_at,omitempty"`
+				UpdatedAt          string         `json:"updated_at,omitempty"`
+				HTMLURL            string         `json:"html_url,omitempty"`
+				State              string         `json:"state,omitempty"`
+				ClosedAt           string         `json:"closed_at,omitempty"`
+				ClosedBy           string         `json:"closed_by,omitempty"`
+				DismissedAt        string         `json:"dismissed_at,omitempty"`
+				DismissedBy        string         `json:"dismissed_by,omitempty"`
+				DismissedReason    string         `json:"dismissed_reason,omitempty"`
+				Rule               SimplifiedRule `json:"rule,omitempty"`
+				Tool               SimplifiedTool `json:"tool,omitempty"`
+				MostRecentInstance struct {
+					Ref      string             `json:"ref,omitempty"`
+					State    string             `json:"state,omitempty"`
+					Location SimplifiedLocation `json:"location,omitempty"`
+					Message  struct {
+						Text string `json:"text,omitempty"`
+					} `json:"message,omitempty"`
+				} `json:"most_recent_instance,omitempty"`
+			}
+
+			// Create simplified alert response
+			simplifiedAlert := SimplifiedAlert{
+				Number:  int64(alert.GetNumber()),
+				HTMLURL: alert.GetHTMLURL(),
+				State:   alert.GetState(),
+			}
+
+			// Format dates
+			if alert.CreatedAt != nil {
+				simplifiedAlert.CreatedAt = alert.CreatedAt.Format(time.RFC3339)
+			}
+			if alert.UpdatedAt != nil {
+				simplifiedAlert.UpdatedAt = alert.UpdatedAt.Format(time.RFC3339)
+			}
+			if alert.ClosedAt != nil {
+				simplifiedAlert.ClosedAt = alert.ClosedAt.Format(time.RFC3339)
+			}
+			if alert.DismissedAt != nil {
+				simplifiedAlert.DismissedAt = alert.DismissedAt.Format(time.RFC3339)
+			}
+
+			// Add user information
+			if alert.ClosedBy != nil {
+				simplifiedAlert.ClosedBy = alert.ClosedBy.GetLogin()
+			}
+			if alert.DismissedBy != nil {
+				simplifiedAlert.DismissedBy = alert.DismissedBy.GetLogin()
+			}
+
+			// Add dismissal reason
+			simplifiedAlert.DismissedReason = alert.GetDismissedReason()
+
+			// Add rule information
+			if alert.Rule != nil {
+				simplifiedAlert.Rule.ID = alert.Rule.GetID()
+				simplifiedAlert.Rule.Name = alert.Rule.GetName()
+				simplifiedAlert.Rule.Severity = alert.Rule.GetSeverity()
+				simplifiedAlert.Rule.Description = alert.Rule.GetDescription()
+			}
+
+			// Add tool information
+			if alert.Tool != nil {
+				simplifiedAlert.Tool.Name = alert.Tool.GetName()
+				simplifiedAlert.Tool.Version = alert.Tool.GetVersion()
+			}
+
+			// Add most recent instance information
+			if alert.MostRecentInstance != nil {
+				simplifiedAlert.MostRecentInstance.Ref = alert.MostRecentInstance.GetRef()
+				simplifiedAlert.MostRecentInstance.State = alert.MostRecentInstance.GetState()
+
+				if alert.MostRecentInstance.Location != nil {
+					simplifiedAlert.MostRecentInstance.Location.Path = alert.MostRecentInstance.Location.GetPath()
+					simplifiedAlert.MostRecentInstance.Location.StartLine = alert.MostRecentInstance.Location.GetStartLine()
+					simplifiedAlert.MostRecentInstance.Location.EndLine = alert.MostRecentInstance.Location.GetEndLine()
+					simplifiedAlert.MostRecentInstance.Location.StartColumn = alert.MostRecentInstance.Location.GetStartColumn()
+					simplifiedAlert.MostRecentInstance.Location.EndColumn = alert.MostRecentInstance.Location.GetEndColumn()
+				}
+
+				if alert.MostRecentInstance.Message != nil {
+					simplifiedAlert.MostRecentInstance.Message.Text = alert.MostRecentInstance.Message.GetText()
+				}
+			}
+
+			r, err := json.Marshal(simplifiedAlert)
 			if err != nil {
-				return nil, fmt.Errorf("failed to marshal alert: %w", err)
+				return nil, fmt.Errorf("failed to marshal simplified alert: %w", err)
 			}
 
 			return mcp.NewToolResultText(string(r)), nil
@@ -150,9 +263,91 @@ func ListCodeScanningAlerts(getClient GetClientFn, t translations.TranslationHel
 				return mcp.NewToolResultError(fmt.Sprintf("failed to list alerts: %s", string(body))), nil
 			}
 
-			r, err := json.Marshal(alerts)
+			// Create simplified location structure
+			type SimplifiedLocation struct {
+				Path      string `json:"path,omitempty"`
+				StartLine int    `json:"start_line"`
+				EndLine   int    `json:"end_line"`
+			}
+
+			// Create simplified rule structure
+			type SimplifiedRule struct {
+				ID          string `json:"id,omitempty"`
+				Name        string `json:"name,omitempty"`
+				Severity    string `json:"severity,omitempty"`
+				Description string `json:"description,omitempty"`
+			}
+
+			// Create simplified tool structure
+			type SimplifiedTool struct {
+				Name    string `json:"name,omitempty"`
+				Version string `json:"version,omitempty"`
+			}
+
+			// Create simplified alert structure
+			type SimplifiedAlert struct {
+				Number             int64          `json:"number"`
+				CreatedAt          string         `json:"created_at,omitempty"`
+				State              string         `json:"state,omitempty"`
+				HTMLURL            string         `json:"html_url,omitempty"`
+				Rule               SimplifiedRule `json:"rule,omitempty"`
+				Tool               SimplifiedTool `json:"tool,omitempty"`
+				MostRecentInstance struct {
+					Location SimplifiedLocation `json:"location,omitempty"`
+					Message  struct {
+						Text string `json:"text,omitempty"`
+					} `json:"message,omitempty"`
+				} `json:"most_recent_instance,omitempty"`
+			}
+
+			// Create list of simplified alerts
+			simplifiedAlerts := make([]SimplifiedAlert, 0, len(alerts))
+
+			for _, alert := range alerts {
+				simplifiedAlert := SimplifiedAlert{
+					Number:  int64(alert.GetNumber()),
+					State:   alert.GetState(),
+					HTMLURL: alert.GetHTMLURL(),
+				}
+
+				// Format date
+				if alert.CreatedAt != nil {
+					simplifiedAlert.CreatedAt = alert.CreatedAt.Format(time.RFC3339)
+				}
+
+				// Add rule information
+				if alert.Rule != nil {
+					simplifiedAlert.Rule.ID = alert.Rule.GetID()
+					simplifiedAlert.Rule.Name = alert.Rule.GetName()
+					simplifiedAlert.Rule.Severity = alert.Rule.GetSeverity()
+					simplifiedAlert.Rule.Description = alert.Rule.GetDescription()
+				}
+
+				// Add tool information
+				if alert.Tool != nil {
+					simplifiedAlert.Tool.Name = alert.Tool.GetName()
+					simplifiedAlert.Tool.Version = alert.Tool.GetVersion()
+				}
+
+				// Add most recent instance information
+				if alert.MostRecentInstance != nil {
+					if alert.MostRecentInstance.Location != nil {
+						simplifiedAlert.MostRecentInstance.Location.Path = alert.MostRecentInstance.Location.GetPath()
+						simplifiedAlert.MostRecentInstance.Location.StartLine = alert.MostRecentInstance.Location.GetStartLine()
+						simplifiedAlert.MostRecentInstance.Location.EndLine = alert.MostRecentInstance.Location.GetEndLine()
+					}
+
+					if alert.MostRecentInstance.Message != nil {
+						simplifiedAlert.MostRecentInstance.Message.Text = alert.MostRecentInstance.Message.GetText()
+					}
+				}
+
+				simplifiedAlerts = append(simplifiedAlerts, simplifiedAlert)
+			}
+
+			r, err := json.Marshal(simplifiedAlerts)
 			if err != nil {
-				return nil, fmt.Errorf("failed to marshal alerts: %w", err)
+				return nil, fmt.Errorf("failed to marshal simplified alerts: %w", err)
 			}
 
 			return mcp.NewToolResultText(string(r)), nil

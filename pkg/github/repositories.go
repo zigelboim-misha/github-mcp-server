@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/github/github-mcp-server/pkg/translations"
 	"github.com/google/go-github/v72/github"
@@ -75,9 +76,125 @@ func GetCommit(getClient GetClientFn, t translations.TranslationHelperFunc) (too
 				return mcp.NewToolResultError(fmt.Sprintf("failed to get commit: %s", string(body))), nil
 			}
 
-			r, err := json.Marshal(commit)
+			// Create simplified author and committer structure
+			type SimplifiedUser struct {
+				Login     string `json:"login,omitempty"`
+				AvatarURL string `json:"avatar_url,omitempty"`
+				HTMLURL   string `json:"html_url,omitempty"`
+			}
+
+			type SimplifiedCommitDetails struct {
+				Author struct {
+					Name  string `json:"name,omitempty"`
+					Email string `json:"email,omitempty"`
+					Date  string `json:"date,omitempty"`
+				} `json:"author,omitempty"`
+				Committer struct {
+					Name  string `json:"name,omitempty"`
+					Email string `json:"email,omitempty"`
+					Date  string `json:"date,omitempty"`
+				} `json:"committer,omitempty"`
+				Message string `json:"message,omitempty"`
+			}
+
+			type SimplifiedFile struct {
+				SHA       string `json:"sha,omitempty"`
+				Filename  string `json:"filename,omitempty"`
+				Status    string `json:"status,omitempty"`
+				Additions int    `json:"additions"`
+				Deletions int    `json:"deletions"`
+				Changes   int    `json:"changes"`
+			}
+
+			type SimplifiedCommit struct {
+				SHA       string                  `json:"sha,omitempty"`
+				NodeID    string                  `json:"node_id,omitempty"`
+				HTMLURL   string                  `json:"html_url,omitempty"`
+				Author    *SimplifiedUser         `json:"author,omitempty"`
+				Committer *SimplifiedUser         `json:"committer,omitempty"`
+				Commit    SimplifiedCommitDetails `json:"commit,omitempty"`
+				Files     []SimplifiedFile        `json:"files,omitempty"`
+				Stats     struct {
+					Additions int `json:"additions"`
+					Deletions int `json:"deletions"`
+					Total     int `json:"total"`
+				} `json:"stats,omitempty"`
+			}
+
+			// Create a simplified commit
+			commitDetails := SimplifiedCommitDetails{}
+			if commit.Commit != nil {
+				if commit.Commit.Author != nil {
+					commitDetails.Author.Name = commit.Commit.Author.GetName()
+					commitDetails.Author.Email = commit.Commit.Author.GetEmail()
+					if commit.Commit.Author.Date != nil {
+						commitDetails.Author.Date = commit.Commit.Author.Date.Format(time.RFC3339)
+					}
+				}
+				if commit.Commit.Committer != nil {
+					commitDetails.Committer.Name = commit.Commit.Committer.GetName()
+					commitDetails.Committer.Email = commit.Commit.Committer.GetEmail()
+					if commit.Commit.Committer.Date != nil {
+						commitDetails.Committer.Date = commit.Commit.Committer.Date.Format(time.RFC3339)
+					}
+				}
+				commitDetails.Message = commit.Commit.GetMessage()
+			}
+
+			// Process author
+			var author *SimplifiedUser
+			if commit.Author != nil {
+				author = &SimplifiedUser{
+					Login:     commit.Author.GetLogin(),
+					AvatarURL: commit.Author.GetAvatarURL(),
+					HTMLURL:   commit.Author.GetHTMLURL(),
+				}
+			}
+
+			// Process committer
+			var committer *SimplifiedUser
+			if commit.Committer != nil {
+				committer = &SimplifiedUser{
+					Login:     commit.Committer.GetLogin(),
+					AvatarURL: commit.Committer.GetAvatarURL(),
+					HTMLURL:   commit.Committer.GetHTMLURL(),
+				}
+			}
+
+			// Process files
+			files := make([]SimplifiedFile, 0, len(commit.Files))
+			for _, file := range commit.Files {
+				files = append(files, SimplifiedFile{
+					SHA:       file.GetSHA(),
+					Filename:  file.GetFilename(),
+					Status:    file.GetStatus(),
+					Additions: file.GetAdditions(),
+					Deletions: file.GetDeletions(),
+					Changes:   file.GetChanges(),
+				})
+			}
+
+			// Create simplified commit
+			simplifiedCommit := SimplifiedCommit{
+				SHA:       commit.GetSHA(),
+				NodeID:    commit.GetNodeID(),
+				HTMLURL:   commit.GetHTMLURL(),
+				Author:    author,
+				Committer: committer,
+				Commit:    commitDetails,
+				Files:     files,
+			}
+
+			// Add stats if available
+			if commit.Stats != nil {
+				simplifiedCommit.Stats.Additions = commit.Stats.GetAdditions()
+				simplifiedCommit.Stats.Deletions = commit.Stats.GetDeletions()
+				simplifiedCommit.Stats.Total = commit.Stats.GetTotal()
+			}
+
+			r, err := json.Marshal(simplifiedCommit)
 			if err != nil {
-				return nil, fmt.Errorf("failed to marshal response: %w", err)
+				return nil, fmt.Errorf("failed to marshal simplified commit: %w", err)
 			}
 
 			return mcp.NewToolResultText(string(r)), nil
@@ -149,9 +266,94 @@ func ListCommits(getClient GetClientFn, t translations.TranslationHelperFunc) (t
 				return mcp.NewToolResultError(fmt.Sprintf("failed to list commits: %s", string(body))), nil
 			}
 
-			r, err := json.Marshal(commits)
+			// Create simplified commits response
+			type SimplifiedUser struct {
+				Login     string `json:"login,omitempty"`
+				AvatarURL string `json:"avatar_url,omitempty"`
+				HTMLURL   string `json:"html_url,omitempty"`
+			}
+
+			type SimplifiedCommitDetails struct {
+				Author struct {
+					Name  string `json:"name,omitempty"`
+					Email string `json:"email,omitempty"`
+					Date  string `json:"date,omitempty"`
+				} `json:"author,omitempty"`
+				Committer struct {
+					Name  string `json:"name,omitempty"`
+					Email string `json:"email,omitempty"`
+					Date  string `json:"date,omitempty"`
+				} `json:"committer,omitempty"`
+				Message string `json:"message,omitempty"`
+			}
+
+			type SimplifiedCommitEntry struct {
+				SHA       string                  `json:"sha,omitempty"`
+				NodeID    string                  `json:"node_id,omitempty"`
+				HTMLURL   string                  `json:"html_url,omitempty"`
+				Author    *SimplifiedUser         `json:"author,omitempty"`
+				Committer *SimplifiedUser         `json:"committer,omitempty"`
+				Commit    SimplifiedCommitDetails `json:"commit,omitempty"`
+			}
+
+			// Create simplified commits list
+			simplifiedCommits := make([]SimplifiedCommitEntry, 0, len(commits))
+
+			for _, commit := range commits {
+				// Create commit details
+				commitDetails := SimplifiedCommitDetails{}
+				if commit.Commit != nil {
+					if commit.Commit.Author != nil {
+						commitDetails.Author.Name = commit.Commit.Author.GetName()
+						commitDetails.Author.Email = commit.Commit.Author.GetEmail()
+						if commit.Commit.Author.Date != nil {
+							commitDetails.Author.Date = commit.Commit.Author.Date.Format(time.RFC3339)
+						}
+					}
+					if commit.Commit.Committer != nil {
+						commitDetails.Committer.Name = commit.Commit.Committer.GetName()
+						commitDetails.Committer.Email = commit.Commit.Committer.GetEmail()
+						if commit.Commit.Committer.Date != nil {
+							commitDetails.Committer.Date = commit.Commit.Committer.Date.Format(time.RFC3339)
+						}
+					}
+					commitDetails.Message = commit.Commit.GetMessage()
+				}
+
+				// Create simplified author
+				var author *SimplifiedUser
+				if commit.Author != nil {
+					author = &SimplifiedUser{
+						Login:     commit.Author.GetLogin(),
+						AvatarURL: commit.Author.GetAvatarURL(),
+						HTMLURL:   commit.Author.GetHTMLURL(),
+					}
+				}
+
+				// Create simplified committer
+				var committer *SimplifiedUser
+				if commit.Committer != nil {
+					committer = &SimplifiedUser{
+						Login:     commit.Committer.GetLogin(),
+						AvatarURL: commit.Committer.GetAvatarURL(),
+						HTMLURL:   commit.Committer.GetHTMLURL(),
+					}
+				}
+
+				// Add to list
+				simplifiedCommits = append(simplifiedCommits, SimplifiedCommitEntry{
+					SHA:       commit.GetSHA(),
+					NodeID:    commit.GetNodeID(),
+					HTMLURL:   commit.GetHTMLURL(),
+					Author:    author,
+					Committer: committer,
+					Commit:    commitDetails,
+				})
+			}
+
+			r, err := json.Marshal(simplifiedCommits)
 			if err != nil {
-				return nil, fmt.Errorf("failed to marshal response: %w", err)
+				return nil, fmt.Errorf("failed to marshal simplified commits: %w", err)
 			}
 
 			return mcp.NewToolResultText(string(r)), nil
@@ -216,9 +418,44 @@ func ListBranches(getClient GetClientFn, t translations.TranslationHelperFunc) (
 				return mcp.NewToolResultError(fmt.Sprintf("failed to list branches: %s", string(body))), nil
 			}
 
-			r, err := json.Marshal(branches)
+			// Create simplified branch structure
+			type SimplifiedCommit struct {
+				SHA     string `json:"sha,omitempty"`
+				URL     string `json:"url,omitempty"`
+				HTMLURL string `json:"html_url,omitempty"`
+			}
+
+			type SimplifiedBranch struct {
+				Name      string            `json:"name,omitempty"`
+				Protected bool              `json:"protected"`
+				Commit    *SimplifiedCommit `json:"commit,omitempty"`
+			}
+
+			// Create simplified branches
+			simplifiedBranches := make([]SimplifiedBranch, 0, len(branches))
+
+			for _, branch := range branches {
+				var commit *SimplifiedCommit
+				if branch.Commit != nil {
+					commit = &SimplifiedCommit{
+						SHA:     branch.Commit.GetSHA(),
+						URL:     branch.Commit.GetURL(),
+						HTMLURL: branch.Commit.GetHTMLURL(),
+					}
+				}
+
+				simplifiedBranch := SimplifiedBranch{
+					Name:      branch.GetName(),
+					Protected: branch.GetProtected(),
+					Commit:    commit,
+				}
+
+				simplifiedBranches = append(simplifiedBranches, simplifiedBranch)
+			}
+
+			r, err := json.Marshal(simplifiedBranches)
 			if err != nil {
-				return nil, fmt.Errorf("failed to marshal response: %w", err)
+				return nil, fmt.Errorf("failed to marshal simplified branches: %w", err)
 			}
 
 			return mcp.NewToolResultText(string(r)), nil
@@ -399,9 +636,69 @@ func CreateRepository(getClient GetClientFn, t translations.TranslationHelperFun
 				return mcp.NewToolResultError(fmt.Sprintf("failed to create repository: %s", string(body))), nil
 			}
 
-			r, err := json.Marshal(createdRepo)
+			// Create simplified repository response
+			type SimplifiedOwner struct {
+				Login   string `json:"login,omitempty"`
+				HTMLURL string `json:"html_url,omitempty"`
+			}
+
+			type SimplifiedRepository struct {
+				Name          string           `json:"name,omitempty"`
+				FullName      string           `json:"full_name,omitempty"`
+				Description   string           `json:"description,omitempty"`
+				HTMLURL       string           `json:"html_url,omitempty"`
+				CloneURL      string           `json:"clone_url,omitempty"`
+				GitURL        string           `json:"git_url,omitempty"`
+				SSHURL        string           `json:"ssh_url,omitempty"`
+				Language      string           `json:"language,omitempty"`
+				Private       bool             `json:"private"`
+				Fork          bool             `json:"fork"`
+				Archived      bool             `json:"archived"`
+				CreatedAt     string           `json:"created_at,omitempty"`
+				UpdatedAt     string           `json:"updated_at,omitempty"`
+				PushedAt      string           `json:"pushed_at,omitempty"`
+				DefaultBranch string           `json:"default_branch,omitempty"`
+				Owner         *SimplifiedOwner `json:"owner,omitempty"`
+			}
+
+			// Extract essential fields
+			simplifiedRepo := SimplifiedRepository{
+				Name:          createdRepo.GetName(),
+				FullName:      createdRepo.GetFullName(),
+				Description:   createdRepo.GetDescription(),
+				HTMLURL:       createdRepo.GetHTMLURL(),
+				CloneURL:      createdRepo.GetCloneURL(),
+				GitURL:        createdRepo.GetGitURL(),
+				SSHURL:        createdRepo.GetSSHURL(),
+				Language:      createdRepo.GetLanguage(),
+				Private:       createdRepo.GetPrivate(),
+				Fork:          createdRepo.GetFork(),
+				Archived:      createdRepo.GetArchived(),
+				DefaultBranch: createdRepo.GetDefaultBranch(),
+			}
+
+			// Format dates
+			if createdRepo.CreatedAt != nil {
+				simplifiedRepo.CreatedAt = createdRepo.CreatedAt.Format(time.RFC3339)
+			}
+			if createdRepo.UpdatedAt != nil {
+				simplifiedRepo.UpdatedAt = createdRepo.UpdatedAt.Format(time.RFC3339)
+			}
+			if createdRepo.PushedAt != nil {
+				simplifiedRepo.PushedAt = createdRepo.PushedAt.Format(time.RFC3339)
+			}
+
+			// Add owner information
+			if createdRepo.Owner != nil {
+				simplifiedRepo.Owner = &SimplifiedOwner{
+					Login:   createdRepo.Owner.GetLogin(),
+					HTMLURL: createdRepo.Owner.GetHTMLURL(),
+				}
+			}
+
+			r, err := json.Marshal(simplifiedRepo)
 			if err != nil {
-				return nil, fmt.Errorf("failed to marshal response: %w", err)
+				return nil, fmt.Errorf("failed to marshal simplified repository: %w", err)
 			}
 
 			return mcp.NewToolResultText(string(r)), nil
@@ -469,16 +766,75 @@ func GetFileContents(getClient GetClientFn, t translations.TranslationHelperFunc
 				return mcp.NewToolResultError(fmt.Sprintf("failed to get file contents: %s", string(body))), nil
 			}
 
+			// Define simplified content structures
+			type SimplifiedFileContent struct {
+				Type        string `json:"type,omitempty"`
+				Name        string `json:"name,omitempty"`
+				Path        string `json:"path,omitempty"`
+				SHA         string `json:"sha,omitempty"`
+				Size        int    `json:"size"`
+				URL         string `json:"url,omitempty"`
+				HTMLURL     string `json:"html_url,omitempty"`
+				GitURL      string `json:"git_url,omitempty"`
+				DownloadURL string `json:"download_url,omitempty"`
+				Content     string `json:"content,omitempty"`
+				Encoding    string `json:"encoding,omitempty"`
+			}
+
+			type SimplifiedDirContent struct {
+				Type        string `json:"type,omitempty"`
+				Name        string `json:"name,omitempty"`
+				Path        string `json:"path,omitempty"`
+				SHA         string `json:"sha,omitempty"`
+				Size        int    `json:"size"`
+				URL         string `json:"url,omitempty"`
+				HTMLURL     string `json:"html_url,omitempty"`
+				GitURL      string `json:"git_url,omitempty"`
+				DownloadURL string `json:"download_url,omitempty"`
+			}
+
 			var result interface{}
+
 			if fileContent != nil {
-				result = fileContent
+				// Single file content
+				content, _ := fileContent.GetContent()
+				simplifiedFile := SimplifiedFileContent{
+					Type:        fileContent.GetType(),
+					Name:        fileContent.GetName(),
+					Path:        fileContent.GetPath(),
+					SHA:         fileContent.GetSHA(),
+					Size:        fileContent.GetSize(),
+					URL:         fileContent.GetURL(),
+					HTMLURL:     fileContent.GetHTMLURL(),
+					GitURL:      fileContent.GetGitURL(),
+					DownloadURL: fileContent.GetDownloadURL(),
+					Content:     content,
+					Encoding:    fileContent.GetEncoding(),
+				}
+				result = simplifiedFile
 			} else {
-				result = dirContent
+				// Directory contents
+				simplifiedDirContents := make([]SimplifiedDirContent, 0, len(dirContent))
+				for _, item := range dirContent {
+					simplifiedItem := SimplifiedDirContent{
+						Type:        item.GetType(),
+						Name:        item.GetName(),
+						Path:        item.GetPath(),
+						SHA:         item.GetSHA(),
+						Size:        item.GetSize(),
+						URL:         item.GetURL(),
+						HTMLURL:     item.GetHTMLURL(),
+						GitURL:      item.GetGitURL(),
+						DownloadURL: item.GetDownloadURL(),
+					}
+					simplifiedDirContents = append(simplifiedDirContents, simplifiedItem)
+				}
+				result = simplifiedDirContents
 			}
 
 			r, err := json.Marshal(result)
 			if err != nil {
-				return nil, fmt.Errorf("failed to marshal response: %w", err)
+				return nil, fmt.Errorf("failed to marshal simplified response: %w", err)
 			}
 
 			return mcp.NewToolResultText(string(r)), nil
@@ -547,9 +903,65 @@ func ForkRepository(getClient GetClientFn, t translations.TranslationHelperFunc)
 				return mcp.NewToolResultError(fmt.Sprintf("failed to fork repository: %s", string(body))), nil
 			}
 
-			r, err := json.Marshal(forkedRepo)
+			// Create simplified repository response
+			type SimplifiedOwner struct {
+				Login   string `json:"login,omitempty"`
+				HTMLURL string `json:"html_url,omitempty"`
+			}
+
+			type SimplifiedRepository struct {
+				Name          string           `json:"name,omitempty"`
+				FullName      string           `json:"full_name,omitempty"`
+				Description   string           `json:"description,omitempty"`
+				HTMLURL       string           `json:"html_url,omitempty"`
+				CloneURL      string           `json:"clone_url,omitempty"`
+				GitURL        string           `json:"git_url,omitempty"`
+				SSHURL        string           `json:"ssh_url,omitempty"`
+				Private       bool             `json:"private"`
+				Fork          bool             `json:"fork"`
+				CreatedAt     string           `json:"created_at,omitempty"`
+				UpdatedAt     string           `json:"updated_at,omitempty"`
+				PushedAt      string           `json:"pushed_at,omitempty"`
+				DefaultBranch string           `json:"default_branch,omitempty"`
+				Owner         *SimplifiedOwner `json:"owner,omitempty"`
+			}
+
+			// Extract essential fields
+			simplifiedRepo := SimplifiedRepository{
+				Name:          forkedRepo.GetName(),
+				FullName:      forkedRepo.GetFullName(),
+				Description:   forkedRepo.GetDescription(),
+				HTMLURL:       forkedRepo.GetHTMLURL(),
+				CloneURL:      forkedRepo.GetCloneURL(),
+				GitURL:        forkedRepo.GetGitURL(),
+				SSHURL:        forkedRepo.GetSSHURL(),
+				Private:       forkedRepo.GetPrivate(),
+				Fork:          forkedRepo.GetFork(),
+				DefaultBranch: forkedRepo.GetDefaultBranch(),
+			}
+
+			// Format dates
+			if forkedRepo.CreatedAt != nil {
+				simplifiedRepo.CreatedAt = forkedRepo.CreatedAt.Format(time.RFC3339)
+			}
+			if forkedRepo.UpdatedAt != nil {
+				simplifiedRepo.UpdatedAt = forkedRepo.UpdatedAt.Format(time.RFC3339)
+			}
+			if forkedRepo.PushedAt != nil {
+				simplifiedRepo.PushedAt = forkedRepo.PushedAt.Format(time.RFC3339)
+			}
+
+			// Add owner information
+			if forkedRepo.Owner != nil {
+				simplifiedRepo.Owner = &SimplifiedOwner{
+					Login:   forkedRepo.Owner.GetLogin(),
+					HTMLURL: forkedRepo.Owner.GetHTMLURL(),
+				}
+			}
+
+			r, err := json.Marshal(simplifiedRepo)
 			if err != nil {
-				return nil, fmt.Errorf("failed to marshal response: %w", err)
+				return nil, fmt.Errorf("failed to marshal simplified repository: %w", err)
 			}
 
 			return mcp.NewToolResultText(string(r)), nil
@@ -701,15 +1113,32 @@ func DeleteFile(getClient GetClientFn, t translations.TranslationHelperFunc) (to
 				return mcp.NewToolResultError(fmt.Sprintf("failed to update reference: %s", string(body))), nil
 			}
 
-			// Create a response similar to what the DeleteFile API would return
-			response := map[string]interface{}{
-				"commit":  newCommit,
-				"content": nil,
+			// Create a simplified response
+			type SimplifiedCommit struct {
+				SHA     string `json:"sha,omitempty"`
+				HTMLURL string `json:"html_url,omitempty"`
+				Message string `json:"message,omitempty"`
 			}
 
-			r, err := json.Marshal(response)
+			type SimplifiedDeleteResponse struct {
+				Commit  SimplifiedCommit `json:"commit"`
+				Content interface{}      `json:"content"`
+			}
+
+			simplifiedCommit := SimplifiedCommit{
+				SHA:     newCommit.GetSHA(),
+				HTMLURL: newCommit.GetHTMLURL(),
+				Message: commit.GetMessage(),
+			}
+
+			simplifiedResponse := SimplifiedDeleteResponse{
+				Commit:  simplifiedCommit,
+				Content: nil,
+			}
+
+			r, err := json.Marshal(simplifiedResponse)
 			if err != nil {
-				return nil, fmt.Errorf("failed to marshal response: %w", err)
+				return nil, fmt.Errorf("failed to marshal simplified response: %w", err)
 			}
 
 			return mcp.NewToolResultText(string(r)), nil
@@ -796,9 +1225,23 @@ func CreateBranch(getClient GetClientFn, t translations.TranslationHelperFunc) (
 			}
 			defer func() { _ = resp.Body.Close() }()
 
-			r, err := json.Marshal(createdRef)
+			// Create simplified reference structure
+			type SimplifiedReference struct {
+				Ref string `json:"ref,omitempty"`
+				URL string `json:"url,omitempty"`
+				SHA string `json:"sha,omitempty"`
+			}
+
+			// Create simplified reference instance
+			simplifiedRef := SimplifiedReference{
+				Ref: createdRef.GetRef(),
+				URL: createdRef.GetURL(),
+				SHA: createdRef.Object.GetSHA(),
+			}
+
+			r, err := json.Marshal(simplifiedRef)
 			if err != nil {
-				return nil, fmt.Errorf("failed to marshal response: %w", err)
+				return nil, fmt.Errorf("failed to marshal simplified response: %w", err)
 			}
 
 			return mcp.NewToolResultText(string(r)), nil
@@ -948,9 +1391,25 @@ func PushFiles(getClient GetClientFn, t translations.TranslationHelperFunc) (too
 			}
 			defer func() { _ = resp.Body.Close() }()
 
-			r, err := json.Marshal(updatedRef)
+			// Create simplified reference structure
+			type SimplifiedReference struct {
+				Ref     string `json:"ref,omitempty"`
+				URL     string `json:"url,omitempty"`
+				SHA     string `json:"sha,omitempty"`
+				Message string `json:"message,omitempty"`
+			}
+
+			// Create simplified reference instance
+			simplifiedRef := SimplifiedReference{
+				Ref:     updatedRef.GetRef(),
+				URL:     updatedRef.GetURL(),
+				SHA:     updatedRef.Object.GetSHA(),
+				Message: message,
+			}
+
+			r, err := json.Marshal(simplifiedRef)
 			if err != nil {
-				return nil, fmt.Errorf("failed to marshal response: %w", err)
+				return nil, fmt.Errorf("failed to marshal simplified response: %w", err)
 			}
 
 			return mcp.NewToolResultText(string(r)), nil
@@ -1013,9 +1472,46 @@ func ListTags(getClient GetClientFn, t translations.TranslationHelperFunc) (tool
 				return mcp.NewToolResultError(fmt.Sprintf("failed to list tags: %s", string(body))), nil
 			}
 
-			r, err := json.Marshal(tags)
+			// Create simplified tag structure
+			type SimplifiedCommit struct {
+				SHA     string `json:"sha,omitempty"`
+				URL     string `json:"url,omitempty"`
+				HTMLURL string `json:"html_url,omitempty"`
+			}
+
+			type SimplifiedTag struct {
+				Name       string            `json:"name,omitempty"`
+				ZipballURL string            `json:"zipball_url,omitempty"`
+				TarballURL string            `json:"tarball_url,omitempty"`
+				Commit     *SimplifiedCommit `json:"commit,omitempty"`
+			}
+
+			// Create simplified tags list
+			simplifiedTags := make([]SimplifiedTag, 0, len(tags))
+
+			for _, tag := range tags {
+				var commit *SimplifiedCommit
+				if tag.Commit != nil {
+					commit = &SimplifiedCommit{
+						SHA:     tag.Commit.GetSHA(),
+						URL:     tag.Commit.GetURL(),
+						HTMLURL: tag.Commit.GetHTMLURL(),
+					}
+				}
+
+				simplifiedTag := SimplifiedTag{
+					Name:       tag.GetName(),
+					ZipballURL: tag.GetZipballURL(),
+					TarballURL: tag.GetTarballURL(),
+					Commit:     commit,
+				}
+
+				simplifiedTags = append(simplifiedTags, simplifiedTag)
+			}
+
+			r, err := json.Marshal(simplifiedTags)
 			if err != nil {
-				return nil, fmt.Errorf("failed to marshal response: %w", err)
+				return nil, fmt.Errorf("failed to marshal simplified tags: %w", err)
 			}
 
 			return mcp.NewToolResultText(string(r)), nil
@@ -1092,9 +1588,51 @@ func GetTag(getClient GetClientFn, t translations.TranslationHelperFunc) (tool m
 				return mcp.NewToolResultError(fmt.Sprintf("failed to get tag object: %s", string(body))), nil
 			}
 
-			r, err := json.Marshal(tagObj)
+			// Create simplified tag object
+			type SimplifiedTagObject struct {
+				Tag     string `json:"tag,omitempty"`
+				SHA     string `json:"sha,omitempty"`
+				URL     string `json:"url,omitempty"`
+				Message string `json:"message,omitempty"`
+				Tagger  struct {
+					Name  string `json:"name,omitempty"`
+					Email string `json:"email,omitempty"`
+					Date  string `json:"date,omitempty"`
+				} `json:"tagger,omitempty"`
+				Object struct {
+					Type string `json:"type,omitempty"`
+					SHA  string `json:"sha,omitempty"`
+					URL  string `json:"url,omitempty"`
+				} `json:"object,omitempty"`
+			}
+
+			// Create simplified tag
+			simplifiedTag := SimplifiedTagObject{
+				Tag:     tagObj.GetTag(),
+				SHA:     tagObj.GetSHA(),
+				URL:     tagObj.GetURL(),
+				Message: tagObj.GetMessage(),
+			}
+
+			// Add tagger information
+			if tagObj.Tagger != nil {
+				simplifiedTag.Tagger.Name = tagObj.Tagger.GetName()
+				simplifiedTag.Tagger.Email = tagObj.Tagger.GetEmail()
+				if tagObj.Tagger.Date != nil {
+					simplifiedTag.Tagger.Date = tagObj.Tagger.Date.Format(time.RFC3339)
+				}
+			}
+
+			// Add object information
+			if tagObj.Object != nil {
+				simplifiedTag.Object.Type = tagObj.Object.GetType()
+				simplifiedTag.Object.SHA = tagObj.Object.GetSHA()
+				simplifiedTag.Object.URL = tagObj.Object.GetURL()
+			}
+
+			r, err := json.Marshal(simplifiedTag)
 			if err != nil {
-				return nil, fmt.Errorf("failed to marshal response: %w", err)
+				return nil, fmt.Errorf("failed to marshal simplified tag: %w", err)
 			}
 
 			return mcp.NewToolResultText(string(r)), nil
