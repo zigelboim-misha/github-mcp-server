@@ -41,7 +41,7 @@ COPY --from=mcp-server /server/github-mcp-server ./github-mcp-server
 # Make sure it's executable
 RUN chmod +x ./github-mcp-server
 
-EXPOSE 8000
+EXPOSE 8080
 
 # Run github-mcp-server with supergateway
-CMD ["supergateway", "--stdio", "./github-mcp-server stdio"]
+CMD ["supergateway", "--stdio", "./github-mcp-server stdio", "--port", "8080"]
